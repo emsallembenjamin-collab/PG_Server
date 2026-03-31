@@ -7,6 +7,7 @@ import { UpdateProviderDto } from './dto/update-provider.dto';
 import { GoldPayService } from './providers/goldpay/goldpay.service';
 import { PaymentHotService } from './providers/paymenthot/paymenthot.service';
 import { SandboxService } from './providers/sandbox/sandbox.service';
+import { DpayService } from './providers/dpay/dpay.service';
 import { IProviderService } from './interfaces/provider.interface';
 
 @Injectable()
@@ -19,11 +20,13 @@ export class ProvidersService {
     private goldPayService: GoldPayService,
     private paymentHotService: PaymentHotService,
     private sandboxService: SandboxService,
+    private dpayService: DpayService,
   ) {
     // Register provider services
     this.providerServices.set('goldpay', this.goldPayService);
     this.providerServices.set('paymenthot', this.paymentHotService);
     this.providerServices.set('sandbox', this.sandboxService);
+    this.providerServices.set('dpay', this.dpayService);
   }
 
   async findAll(): Promise<Provider[]> {

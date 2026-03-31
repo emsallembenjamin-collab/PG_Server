@@ -76,10 +76,20 @@ export class WebhooksService {
     payload: any,
   ): Promise<void> {
     const providerTxnId = String(
-      payload.txnId || payload.transaction_id || payload.transactionId || payload.ref_id || '',
+      payload.txnId ||
+        payload.transaction_id ||
+        payload.transactionId ||
+        payload.ref_id ||
+        payload.serial_number ||
+        '',
     ).trim();
     const merchantOrderId = String(
-      payload.orderId || payload.order_id || payload.reference_id || '',
+      payload.orderId ||
+        payload.order_id ||
+        payload.reference_id ||
+        payload.merchant_order ||
+        payload.order ||
+        '',
     ).trim();
 
     // Log webhook event
@@ -105,7 +115,7 @@ export class WebhooksService {
     const provider = await this.providersService.findOne(providerId);
     const providerService = this.providersService.getProviderService(provider.name);
     const normalizedStatus = providerService.normalizeStatus(
-      String(payload.status || payload.code || ''),
+      String(payload.status || payload.state || payload.code || ''),
     ) as TransactionStatus;
 
     if (normalizedStatus === TransactionStatus.SUCCEEDED) {

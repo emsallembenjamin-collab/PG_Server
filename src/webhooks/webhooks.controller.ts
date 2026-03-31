@@ -41,6 +41,10 @@ export class WebhooksController {
       payload,
     );
 
+    if (providerName.toLowerCase() === 'dpay') {
+      return 'SUCCESS';
+    }
+
     return { success: true };
   }
 }
