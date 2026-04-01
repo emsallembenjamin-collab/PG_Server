@@ -43,6 +43,9 @@ export class Merchant {
   @Column({ type: 'varchar', length: 255, nullable: true })
   webhook_secret: string;
 
+  @Column({ type: 'simple-json', nullable: true })
+  whitelisted_ips: string[];
+
   @Column({ nullable: true })
   provider_id: number; // Assigned provider (one per merchant)
 

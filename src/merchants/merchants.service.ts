@@ -1,7 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { Merchant, MerchantStatus } from './entities/merchant.entity';
 import { MerchantApiKey, ApiKeyStatus } from './entities/merchant-api-key.entity';
@@ -9,6 +8,7 @@ import { CreateMerchantDto } from './dto/create-merchant.dto';
 import { UpdateMerchantDto } from './dto/update-merchant.dto';
 import { ProviderStatus } from '../providers/entities/provider.entity';
 import { ProvidersService } from '../providers/providers.service';
+import { normalizeIpList } from '../common/utils/ip.utils';
 
 @Injectable()
 export class MerchantsService {
@@ -21,7 +21,14 @@ export class MerchantsService {
   ) {}
 
   async create(createMerchantDto: CreateMerchantDto): Promise<Merchant> {
-    const merchant = this.merchantRepository.create(createMerchantDto);
+    const merchant = this.merchantRepository.create({
+      ...createMerchantDto,
+      name: createMerchantDto.name.trim(),
+      email: createMerchantDto.email.trim().toLowerCase(),
+      webhook_url: createMerchantDto.webhook_url?.trim() || null,
+      whitelisted_ips: normalizeIpList(createMerchantDto.whitelisted_ips),
+    });
+
     return this.merchantRepository.save(merchant);
   }
 
@@ -59,6 +66,10 @@ export class MerchantsService {
 
     if (updateMerchantDto.webhook_url !== undefined) {
       merchant.webhook_url = updateMerchantDto.webhook_url?.trim() || null;
+    }
+
+    if (updateMerchantDto.whitelisted_ips !== undefined) {
+      merchant.whitelisted_ips = normalizeIpList(updateMerchantDto.whitelisted_ips);
     }
 
     return this.merchantRepository.save(merchant);
@@ -168,7 +179,7 @@ export class MerchantsService {
    */
   async assignProvider(merchantId: number, providerId: number): Promise<Merchant> {
     const merchant = await this.findOne(merchantId);
-    
+
     // Verify provider exists and is active
     const provider = await this.providersService.findOne(providerId);
     if (provider.status !== ProviderStatus.ACTIVE) {
