@@ -36,10 +36,11 @@ export class Provider {
   @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true })
   fee_percentage: number;
 
-  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true })
+  /** Large enough for VND-style limits (was DECIMAL(15,2) which overflowed at ~1e13). */
+  @Column({ type: 'decimal', precision: 20, scale: 2, nullable: true })
   min_amount: number;
 
-  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 20, scale: 2, nullable: true })
   max_amount: number;
 
   @Column({ type: 'text', nullable: true })

@@ -1,6 +1,6 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { QueryFailedError, Repository } from 'typeorm';
 import { Provider, ProviderStatus } from './entities/provider.entity';
 import { CreateProviderDto } from './dto/create-provider.dto';
 import { UpdateProviderDto } from './dto/update-provider.dto';
@@ -53,7 +53,12 @@ export class ProvidersService {
       max_amount: createProviderDto.max_amount ?? null,
     });
 
-    return this.providerRepository.save(provider);
+    try {
+      return await this.providerRepository.save(provider);
+    } catch (e) {
+      this.rethrowProviderAmountError(e);
+      throw e;
+    }
   }
 
   async findOne(id: number): Promise<Provider> {
@@ -92,7 +97,32 @@ export class ProvidersService {
       provider.config = updateProviderDto.config?.trim() || null;
     }
 
-    return this.providerRepository.save(provider);
+    try {
+      return await this.providerRepository.save(provider);
+    } catch (e) {
+      this.rethrowProviderAmountError(e);
+      throw e;
+    }
+  }
+
+  /** Maps MySQL DECIMAL overflow / truncation to a 400 instead of a generic 500. */
+  private rethrowProviderAmountError(e: unknown): void {
+    if (!(e instanceof QueryFailedError)) {
+      return;
+    }
+    const msg = String((e as QueryFailedError).message || '');
+    const code = (e as QueryFailedError & { code?: string }).code;
+    if (
+      code === 'ER_WARN_DATA_OUT_OF_RANGE' ||
+      code === 'WARN_DATA_TRUNCATED' ||
+      msg.includes('Out of range') ||
+      msg.includes('Data truncated') ||
+      msg.includes('1264')
+    ) {
+      throw new BadRequestException(
+        'min_amount or max_amount does not fit the database column. Use smaller values, or alter `providers.min_amount` / `providers.max_amount` to DECIMAL(20,2) (see docs/DPAY_GOLDPAY_SETUP.md).',
+      );
+    }
   }
 
   async findByName(name: string): Promise<Provider> {

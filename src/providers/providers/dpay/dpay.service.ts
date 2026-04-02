@@ -633,7 +633,13 @@ export class DpayService implements IProviderService {
     if (this.signOutputCase === 'upper') {
       digest = digest.toUpperCase();
     }
-
+    console.log('digest', digest);
+    console.log('raw', raw);
+    console.log('signingSecret', signingSecret);
+    console.log('message', message);
+    console.log('keys', keys);
+    console.log('payload', payload);
+    
     return digest;
   }
 
