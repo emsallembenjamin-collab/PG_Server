@@ -6,6 +6,8 @@ For an interactive reference (try requests, schemas), open:
 
 - **Swagger UI (Merchant):** `{BASE_URL}/api/docs/merchant`  
 - **OpenAPI JSON:** `{BASE_URL}/api/docs/merchant-json` (for codegen / Postman import)
+- **Merchant Test Pages (HTML forms):** `{BASE_URL}/api/v1/merchant-ui` (deposit/withdraw + inquiries)
+- **Merchant Docs Page (HTML):** `{BASE_URL}/api/v1/merchant-ui/docs`
 
 Full platform docs (admin JWT, provider callbacks, etc.) are at `{BASE_URL}/api/docs`.
 
@@ -113,6 +115,11 @@ Fields align with `CreateTransactionDto` / funding DTOs (see Swagger for full va
 | `idempotency_key` | string | No | Same key + same merchant returns the **same** response |
 | `metadata` | object | No | Extra fields passed to the provider adapter where supported |
 | `sandbox` | object | No | Only when merchant is assigned the **sandbox** provider |
+
+If you submit requests as `application/x-www-form-urlencoded` (HTML form), then:
+
+- send `metadata` as a JSON string value (e.g. `metadata={"userinfo":"user-1","pay_callbackurl":"https://..."}`)  
+- send `sandbox` as a JSON string value (e.g. `sandbox={"outcome":"processing_then_success","delay_ms":1500}`)  
 
 ### Example (deposit)
 

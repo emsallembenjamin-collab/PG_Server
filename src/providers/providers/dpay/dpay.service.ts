@@ -456,13 +456,13 @@ export class DpayService implements IProviderService {
       payload.bank_code = String(metadata.bank_code);
     }
 
+    // DPay `extend` can be empty (docs allow blank); keep it out of strict required list.
     this.ensureRequiredFields(payload, [
       'uid',
       'merchant_num',
       'merchant_order',
       'coin',
       'pay_date',
-      'extend',
       'pay_type',
       'userinfo',
       'user_ip',
@@ -528,6 +528,7 @@ export class DpayService implements IProviderService {
       user_ip: String(metadata.user_ip || metadata.ip || this.defaultUserIp),
     };
 
+    // DPay `extend` can be empty; keep it out of strict required list.
     this.ensureRequiredFields(payload, [
       'uid',
       'merchant_num',
@@ -537,7 +538,6 @@ export class DpayService implements IProviderService {
       'target_bank',
       'bank_name',
       'target_bank_user',
-      'extend',
       'order_date',
       'user_ip',
     ]);

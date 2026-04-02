@@ -15,6 +15,7 @@ import { IdempotencyModule } from './idempotency/idempotency.module';
 import { CurrenciesModule } from './currencies/currencies.module';
 import { ReconciliationModule } from './reconciliation/reconciliation.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { MerchantUiModule } from './merchant-ui/merchant-ui.module';
 
 // Common
 import { CommonModule } from './common/common.module';
@@ -85,6 +86,7 @@ import { CommonModule } from './common/common.module';
     IdempotencyModule,
     ReconciliationModule,
     NotificationsModule,
+    MerchantUiModule,
   ],
 })
 export class AppModule {}

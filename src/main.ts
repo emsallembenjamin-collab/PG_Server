@@ -4,6 +4,7 @@ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import { ConfigService } from '@nestjs/config';
+import express from 'express';
 import {
   filterOpenApiByTag,
   MERCHANT_INTEGRATION_TAG,
@@ -31,6 +32,9 @@ async function bootstrap() {
     origin: true,
     credentials: true,
   });
+
+  // Allow merchants to submit HTML forms (`application/x-www-form-urlencoded`).
+  app.use(express.urlencoded({ extended: true }));
 
   // Global validation pipe
   app.useGlobalPipes(

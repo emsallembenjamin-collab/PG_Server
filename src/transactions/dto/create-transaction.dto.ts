@@ -11,7 +11,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import { TransactionType } from '../entities/transaction.entity';
 import {
   SANDBOX_DELIVERY_MODES,
@@ -64,12 +64,33 @@ export class CreateTransactionDto {
 
   @ApiProperty({ required: false })
   @IsOptional()
+  @Transform(({ value }) => {
+    // When using HTML forms, `metadata` often arrives as a JSON string.
+    if (typeof value === 'string') {
+      try {
+        return value.trim() ? JSON.parse(value) : undefined;
+      } catch {
+        return value;
+      }
+    }
+    return value;
+  })
   @IsObject()
   metadata?: Record<string, any>;
 
   @ApiProperty({ required: false, type: () => SandboxTransactionDto })
   @IsOptional()
   @ValidateNested()
+  @Transform(({ value }) => {
+    if (typeof value === 'string') {
+      try {
+        return value.trim() ? JSON.parse(value) : undefined;
+      } catch {
+        return value;
+      }
+    }
+    return value;
+  })
   @Type(() => SandboxTransactionDto)
   sandbox?: SandboxTransactionDto;
 }
