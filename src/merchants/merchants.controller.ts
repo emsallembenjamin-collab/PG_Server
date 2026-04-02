@@ -7,17 +7,13 @@ import {
   Body,
   Param,
   UseGuards,
-  Request,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBearerAuth, ApiSecurity } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { MerchantsService } from './merchants.service';
 import { CreateMerchantDto } from './dto/create-merchant.dto';
 import { UpdateMerchantDto } from './dto/update-merchant.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { ApiKeyGuard } from '../common/guards/api-key.guard';
-import { ApiKey } from '../common/decorators/api-key.decorator';
-
-@ApiTags('Merchants')
+@ApiTags('Merchants (Admin)')
 @Controller('merchants')
 export class MerchantsController {
   constructor(private readonly merchantsService: MerchantsService) {}
@@ -36,34 +32,6 @@ export class MerchantsController {
   @ApiOperation({ summary: 'Get all merchants' })
   async findAll() {
     return this.merchantsService.findAll();
-  }
-
-  @Get('me')
-  @UseGuards(ApiKeyGuard)
-  @ApiSecurity('api-key')
-  @ApiKey()
-  @ApiOperation({ summary: 'Get the authenticated merchant profile' })
-  async getMe(@Request() req) {
-    return req.merchant;
-  }
-
-  @Post('me/api-keys/rotate')
-  @UseGuards(ApiKeyGuard)
-  @ApiSecurity('api-key')
-  @ApiKey()
-  @ApiOperation({ summary: 'Rotate the authenticated merchant API key' })
-  async rotateCurrentApiKey(
-    @Request() req,
-    @Body() body: { name?: string },
-  ) {
-    const headerValue = req.headers['x-api-key'];
-    const currentApiKey = Array.isArray(headerValue) ? headerValue[0] : headerValue;
-    const apiKey = await this.merchantsService.rotateCurrentApiKey(
-      req.merchant.id,
-      currentApiKey,
-      body.name,
-    );
-    return { api_key: apiKey };
   }
 
   @Get(':id')

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { MerchantsService } from './merchants.service';
 import { MerchantsController } from './merchants.controller';
+import { MerchantProfileController } from './merchant-profile.controller';
 import { MerchantConfigService } from './merchant-config.service';
 import { Merchant } from './entities/merchant.entity';
 import { MerchantApiKey } from './entities/merchant-api-key.entity';
@@ -14,7 +15,7 @@ import { ProvidersModule } from '../providers/providers.module';
     TypeOrmModule.forFeature([Merchant, MerchantApiKey, MerchantConfig]),
     ProvidersModule,
   ],
-  controllers: [MerchantsController],
+  controllers: [MerchantProfileController, MerchantsController],
   providers: [MerchantsService, MerchantConfigService, DefaultMerchantConfigPlugin],
   exports: [MerchantsService, MerchantConfigService],
 })

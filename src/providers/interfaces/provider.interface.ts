@@ -10,8 +10,14 @@ export interface ProcessTransactionResponse {
   success: boolean;
   externalId?: string;
   paymentUrl?: string;
+  /** Merchant-facing payment instructions (QR, bank info, redirect URL, etc.) */
+  paymentDetails?: Record<string, unknown>;
   status?: string;
   error?: string;
+  /** Upstream provider business code when success is false (e.g. DPay `code`). */
+  providerErrorCode?: string | number;
+  /** Upstream provider message (e.g. DPay English `message` / `msg`). */
+  providerErrorMessage?: string;
   callbackPayload?: Record<string, any>;
   callbackDelayMs?: number;
 }

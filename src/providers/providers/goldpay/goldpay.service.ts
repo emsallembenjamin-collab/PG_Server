@@ -52,10 +52,12 @@ export class GoldPayService implements IProviderService {
         };
       }
 
+      const payUrl = response.data.pay_url;
       return {
         success: true,
         externalId: response.data.ref_id,
-        paymentUrl: response.data.pay_url,
+        paymentUrl: payUrl,
+        paymentDetails: payUrl ? { url: payUrl } : undefined,
       };
     } catch (error) {
       return {

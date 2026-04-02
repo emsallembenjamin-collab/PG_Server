@@ -32,7 +32,7 @@ export class IdempotencyService {
     merchantId: number,
     key: string,
     request: any,
-    response: Transaction,
+    response: Transaction | Record<string, unknown>,
   ): Promise<void> {
     const requestHash = this.hashRequest(request);
 

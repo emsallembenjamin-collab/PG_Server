@@ -114,8 +114,17 @@ export class WebhooksService {
 
     const provider = await this.providersService.findOne(providerId);
     const providerService = this.providersService.getProviderService(provider.name);
+
+    const statusSource =
+      payload.status !== undefined && payload.status !== null
+        ? payload.status
+        : payload.state !== undefined && payload.state !== null
+          ? payload.state
+          : payload.code !== undefined && payload.code !== null
+            ? payload.code
+            : '';
     const normalizedStatus = providerService.normalizeStatus(
-      String(payload.status || payload.state || payload.code || ''),
+      String(statusSource),
     ) as TransactionStatus;
 
     if (normalizedStatus === TransactionStatus.SUCCEEDED) {

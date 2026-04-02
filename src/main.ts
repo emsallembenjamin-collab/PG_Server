@@ -4,6 +4,10 @@ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import { ConfigService } from '@nestjs/config';
+import {
+  filterOpenApiByTag,
+  MERCHANT_INTEGRATION_TAG,
+} from './docs/swagger-merchant.filter';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
@@ -40,10 +44,13 @@ async function bootstrap() {
     }),
   );
 
-  // Swagger documentation
+  // Swagger — full platform (admin + merchants + webhooks)
   const config = new DocumentBuilder()
     .setTitle('GoldPay Platform API')
-    .setDescription('Multi-provider payment platform API')
+    .setDescription(
+      `Internal and operator API (JWT), merchant integration (API key), and webhooks.\n\n` +
+        `**Merchants:** use the dedicated Merchant API UI at \`/api/docs/merchant\` (API key only) or read \`docs/MERCHANT_API.md\`.`,
+    )
     .setVersion('1.0')
     .addBearerAuth()
     .addApiKey({ type: 'apiKey', name: 'X-API-Key', in: 'header' }, 'api-key')
@@ -51,9 +58,32 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api/docs', app, document);
 
+  // Merchant-only OpenAPI (tag-filtered; shareable with integrators)
+  const merchantConfig = new DocumentBuilder()
+    .setTitle('GoldPay Merchant API')
+    .setDescription(
+      `REST API for merchants integrating deposits, withdrawals, and webhooks with GoldPay.\n\n` +
+        `**Auth:** \`X-API-Key\` (secret issued by the platform admin).\n\n` +
+        `**Provider:** Each merchant is assigned one payment provider by the platform; you do not call provider APIs directly.\n\n` +
+        `**PDF / offline:** See \`docs/MERCHANT_API.md\` in the repository.\n\n` +
+        `**DPay error codes:** See \`docs/DPAY_ERROR_CODES.md\` when the assigned provider is DPay.\n\n` +
+        `**DPay payout inquiry:** \`POST /funding/payout-inquiry\` — see \`docs/DPAY_PAYOUT_INQUIRY.md\`.`,
+    )
+    .setVersion('1.0')
+    .addApiKey({ type: 'apiKey', name: 'X-API-Key', in: 'header' }, 'api-key')
+    .build();
+  const merchantDocument = filterOpenApiByTag(
+    SwaggerModule.createDocument(app, merchantConfig),
+    MERCHANT_INTEGRATION_TAG,
+  );
+  SwaggerModule.setup('api/docs/merchant', app, merchantDocument, {
+    customSiteTitle: 'GoldPay Merchant API',
+  });
+
   await app.listen(port);
   console.log(`🚀 GoldPay Platform API is running on: http://localhost:${port}/${apiPrefix}`);
-  console.log(`📚 Swagger documentation: http://localhost:${port}/api/docs`);
+  console.log(`📚 Swagger (full): http://localhost:${port}/api/docs`);
+  console.log(`📗 Swagger (merchants): http://localhost:${port}/api/docs/merchant`);
 }
 
 function parseTrustProxy(value?: string): boolean | number | string | string[] | undefined {

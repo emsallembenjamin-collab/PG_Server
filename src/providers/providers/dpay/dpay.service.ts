@@ -7,6 +7,9 @@ import {
   ProcessTransactionRequest,
   ProcessTransactionResponse,
 } from '../../interfaces/provider.interface';
+import type { DpayPayoutInquiryResult } from './dpay-payout-inquiry.types';
+import type { DpayBankListResult } from './dpay-bank-list.types';
+import type { DpayBalanceInquiryResult } from './dpay-balance-inquiry.types';
 
 type DpaySignMode = 'values_only' | 'key_value' | 'json';
 type DpaySignSecretPosition = 'append' | 'prepend';
@@ -14,7 +17,13 @@ type DpaySignAlgorithm = 'md5' | 'sha1' | 'sha256';
 
 @Injectable()
 export class DpayService implements IProviderService {
+  /** Host for Look APIs (payout inquiry); differs from pay host in DPay docs. */
+  private readonly lookBaseUrl: string;
+  /** Host for payout inquiry Look API (`/Look/pay_order`). */
+  private readonly payoutInquiryLookBaseUrl: string;
   private readonly baseUrl: string;
+  /** Host for payout API (`/payment`) in DPay docs. */
+  private readonly payoutBaseUrl: string;
   private readonly uid: string;
   private readonly merchantNum: string;
   private readonly secret: string;
@@ -28,8 +37,21 @@ export class DpayService implements IProviderService {
   private readonly signFields: string[];
 
   constructor(private readonly configService: ConfigService) {
+    this.lookBaseUrl = (
+      this.configService.get<string>('DPAY_LOOK_BASE_URL') ||
+      'https://payment.dpayvn.com'
+    ).replace(/\/+$/, '');
+    this.payoutInquiryLookBaseUrl = (
+      this.configService.get<string>(
+        'DPAY_PAYOUT_INQUIRY_LOOK_BASE_URL',
+      ) || 'https://pay.dpayvn.com'
+    ).replace(/\/+$/, '');
     this.baseUrl = (
       this.configService.get<string>('DPAY_BASE_URL') || 'https://pay.dpayvn.com'
+    ).replace(/\/+$/, '');
+    this.payoutBaseUrl = (
+      this.configService.get<string>('DPAY_PAYOUT_BASE_URL') ||
+      'https://payment.dpayvn.com'
     ).replace(/\/+$/, '');
     this.uid = this.configService.get<string>('DPAY_UID') || '';
     this.merchantNum = this.configService.get<string>('DPAY_MERCHANT_NUM') || '';
@@ -73,13 +95,249 @@ export class DpayService implements IProviderService {
         ? await this.createDeposit(request)
         : await this.createWithdrawal(request);
     } catch (error: any) {
+      const data = error?.response?.data;
+      return this.dpayApiFailure(
+        data && typeof data === 'object' ? data : {},
+        error?.message || 'DPay service error',
+      );
+    }
+  }
+
+  /**
+   * DPay payout inquiry: `POST .../Look/pay_order` (form-urlencoded).
+   * Success: `code === 1`; `data.state`: 1 success, 2 pending payout.
+   */
+  async payoutInquiry(params: {
+    merchant_num?: string;
+    merchant_order: string;
+    find_date: string;
+  }): Promise<DpayPayoutInquiryResult> {
+    const payload: Record<string, string> = {
+      merchant_num: String(params.merchant_num || this.merchantNum).trim(),
+      merchant_order: String(params.merchant_order).trim(),
+      find_date: String(params.find_date).trim(),
+    };
+    this.ensureRequiredFields(payload, [
+      'merchant_num',
+      'merchant_order',
+      'find_date',
+    ]);
+    payload.sign = this.generateSignature(payload);
+
+    try {
+      const response = await this.postFormToPayoutInquiryLook(
+        '/Look/pay_order',
+        payload,
+      );
+      const data = response.data || {};
+
+      if (!this.isSuccessCode(data.code)) {
+        const fail = this.dpayApiFailure(
+          data,
+          `DPay payout inquiry failed with code ${data.code}`,
+        );
+        return {
+          success: false,
+          providerErrorCode: fail.providerErrorCode,
+          providerErrorMessage: fail.providerErrorMessage,
+          message: fail.error,
+          raw: data,
+        };
+      }
+
+      const rawData = data.data;
+      if (
+        rawData == null ||
+        (Array.isArray(rawData) && rawData.length === 0)
+      ) {
+        return {
+          success: false,
+          providerErrorCode: data.code,
+          providerErrorMessage:
+            data.message != null
+              ? String(data.message)
+              : 'Payout inquiry returned no data',
+          message: 'Payout inquiry returned no data',
+          raw: data,
+        };
+      }
+
+      const row = Array.isArray(rawData) ? rawData[0] : rawData;
+      if (row == null || typeof row !== 'object') {
+        return {
+          success: false,
+          providerErrorCode: data.code,
+          providerErrorMessage: 'Invalid payout inquiry data shape',
+          raw: data,
+        };
+      }
+
+      const o = row as Record<string, unknown>;
+      const stateNum = Number(o.state ?? 0);
+      let state_label:
+        | 'succeeded'
+        | 'rejected'
+        | 'processing'
+        | 'unknown' = 'unknown';
+      if (stateNum === 1) {
+        state_label = 'succeeded';
+      } else if (stateNum === 2) {
+        state_label = 'processing';
+      } else if (stateNum === 3) {
+        state_label = 'processing';
+      }
+
+      return {
+        success: true,
+        code: data.code,
+        message: data.message != null ? String(data.message) : undefined,
+        payout: {
+          serial_number: String(o.serial_number ?? ''),
+          merchant_order: String(o.merchant_order ?? ''),
+          state: stateNum,
+          state_label,
+          success_time:
+            o.success_time != null ? String(o.success_time) : undefined,
+          coin: String(o.coin ?? ''),
+        },
+      };
+    } catch (error: any) {
+      const errData = error?.response?.data;
+      const fail = this.dpayApiFailure(
+        errData && typeof errData === 'object' ? errData : {},
+        error?.message || 'DPay payout inquiry request failed',
+      );
       return {
         success: false,
-        error:
-          error?.response?.data?.message ||
-          error?.response?.data?.msg ||
-          error?.message ||
-          'DPay service error',
+        providerErrorCode: fail.providerErrorCode,
+        providerErrorMessage: fail.providerErrorMessage,
+        message: fail.error,
+        raw: errData,
+      };
+    }
+  }
+
+  /**
+   * DPay channel/bank resource list:
+   * POST `.../index/bank_list` (form-urlencoded).
+   */
+  async bankList(params: {
+    pay_type: number;
+    merchant_num?: string;
+  }): Promise<DpayBankListResult> {
+    const payload: Record<string, string> = {
+      merchant_num: String(params.merchant_num || this.merchantNum).trim(),
+      pay_type: String(params.pay_type).trim(),
+    };
+
+    this.ensureRequiredFields(payload, ["merchant_num", "pay_type"]);
+    payload.sign = this.generateSignature(payload);
+
+    try {
+      const response = await this.postForm("/index/bank_list", payload);
+      const data = response.data || {};
+
+      if (!this.isSuccessCode(data.code)) {
+        const fail = this.dpayApiFailure(
+          data,
+          `DPay bank_list failed with code ${data.code}`,
+        );
+        return {
+          success: false,
+          providerErrorCode: fail.providerErrorCode,
+          providerErrorMessage: fail.providerErrorMessage,
+          message: fail.error,
+          raw: data,
+        };
+      }
+
+      const list = Array.isArray(data.data) ? data.data : [];
+      return {
+        success: true,
+        code: data.code,
+        message: data.message != null ? String(data.message) : undefined,
+        data: list
+          .map((x: any) => ({
+            code: x?.code,
+            bank_name: x?.bank_name != null ? String(x.bank_name) : "",
+          }))
+          .filter((x: any) => x.code != null),
+      };
+    } catch (error: any) {
+      const errData = error?.response?.data;
+      const fail = this.dpayApiFailure(
+        errData && typeof errData === "object" ? errData : {},
+        error?.message || "DPay bank_list request failed",
+      );
+      return {
+        success: false,
+        providerErrorCode: fail.providerErrorCode,
+        providerErrorMessage: fail.providerErrorMessage,
+        message: fail.error,
+        raw: errData,
+      };
+    }
+  }
+
+  /**
+   * DPay balance inquiry: `POST .../Look/get_coin` (form-urlencoded).
+   * Success: `code === 1`; response `data` contains `coin` and `fcoin`.
+   */
+  async balanceInquiry(params: {
+    merchant_num?: string;
+    uid?: string;
+    find_date: string;
+  }): Promise<DpayBalanceInquiryResult> {
+    const payload: Record<string, string> = {
+      merchant_num: String(params.merchant_num || this.merchantNum).trim(),
+      uid: String(params.uid || this.uid).trim(),
+      find_date: String(params.find_date).trim(),
+    };
+
+    this.ensureRequiredFields(payload, ["merchant_num", "uid", "find_date"]);
+
+    payload.sign = this.generateSignature(payload);
+
+    try {
+      const response = await this.postFormToLook("/Look/get_coin", payload);
+      const data = response.data || {};
+
+      if (!this.isSuccessCode(data.code)) {
+        const fail = this.dpayApiFailure(
+          data,
+          `DPay balance inquiry failed with code ${data.code}`,
+        );
+        return {
+          success: false,
+          providerErrorCode: fail.providerErrorCode,
+          providerErrorMessage: fail.providerErrorMessage,
+          message: fail.error,
+          raw: data,
+        };
+      }
+
+      const rawData = data.data || {};
+      return {
+        success: true,
+        code: data.code,
+        message: data.message != null ? String(data.message) : undefined,
+        merchant_num: String(rawData.merchant_num ?? payload.merchant_num),
+        coin: String(rawData.coin ?? ""),
+        fcoin: String(rawData.fcoin ?? ""),
+        sign: rawData.sign != null ? String(rawData.sign) : undefined,
+      };
+    } catch (error: any) {
+      const errData = error?.response?.data;
+      const fail = this.dpayApiFailure(
+        errData && typeof errData === "object" ? errData : {},
+        error?.message || "DPay balance inquiry request failed",
+      );
+      return {
+        success: false,
+        providerErrorCode: fail.providerErrorCode,
+        providerErrorMessage: fail.providerErrorMessage,
+        message: fail.error,
+        raw: errData,
       };
     }
   }
@@ -93,6 +351,54 @@ export class DpayService implements IProviderService {
 
     const expectedSignature = this.generateSignature(payload, signingSecret);
     return this.safeEqual(expectedSignature, incomingSignature);
+  }
+
+  /**
+   * DPay payout completion callback: `POST` `Content-Type: application/json`.
+   * `sign` is in the JSON body. When `code` is `0`, it does not participate in the signature.
+   */
+  verifyPayoutCallback(payload: any, secret?: string): boolean {
+    const incomingSignature = String(payload?.sign || '').trim();
+    const signingSecret = String(secret || this.secret || '').trim();
+    if (!incomingSignature || !signingSecret) {
+      return false;
+    }
+
+    const raw: Record<string, unknown> = { ...payload };
+    delete raw.sign;
+
+    const codeVal = raw.code;
+    if (
+      codeVal === 0 ||
+      codeVal === '0' ||
+      String(codeVal).trim() === '0'
+    ) {
+      delete raw.code;
+    }
+
+    const payloadForSign: Record<string, string> = {};
+    for (const [k, v] of Object.entries(raw)) {
+      if (v === undefined || v === null) continue;
+      payloadForSign[k] = String(v);
+    }
+
+    const expectedSignature = this.generateSignature(payloadForSign, signingSecret);
+    return this.safeEqual(expectedSignature, incomingSignature);
+  }
+
+  /** JSON body shape for DPay payout notify (vs deposit notify). */
+  static isPayoutCallbackPayload(payload: any): boolean {
+    return (
+      payload &&
+      typeof payload === 'object' &&
+      !Array.isArray(payload) &&
+      'merchant_order' in payload &&
+      'serial_number' in payload &&
+      'success_time' in payload &&
+      'order_time' in payload &&
+      // Deposit callback includes `pay_coin`; payout callback does not.
+      !('pay_coin' in payload)
+    );
   }
 
   normalizeStatus(providerStatus: string): string {
@@ -167,19 +473,31 @@ export class DpayService implements IProviderService {
     const response = await this.postForm(endpoint, payload);
     const data = response.data || {};
     if (!this.isSuccessCode(data.code)) {
-      return {
-        success: false,
-        error: data.message || data.msg || `DPay deposit failed with code ${data.code}`,
-      };
+      return this.dpayApiFailure(
+        data,
+        `DPay deposit failed with code ${data.code}`,
+      );
     }
 
     const payInfo = data.pay_info || {};
+    const payInfoObj =
+      typeof payInfo === 'object' && payInfo !== null && !Array.isArray(payInfo)
+        ? (payInfo as Record<string, unknown>)
+        : {};
+    const externalId = String(
+      payInfoObj.order || payInfoObj.m_order || data.serial_number || merchantOrder,
+    );
+    const payUrl = data.payurl ? String(data.payurl) : undefined;
+    const paymentDetails: Record<string, unknown> = {
+      ...payInfoObj,
+      ...(data.serial_number != null ? { serial_number: data.serial_number } : {}),
+      ...(payUrl ? { url: payUrl, payurl: payUrl } : {}),
+    };
     return {
       success: true,
-      externalId: String(
-        payInfo.order || payInfo.m_order || data.serial_number || merchantOrder,
-      ),
-      paymentUrl: data.payurl || undefined,
+      externalId,
+      paymentUrl: payUrl,
+      paymentDetails,
       status: 'processing',
     };
   }
@@ -226,13 +544,14 @@ export class DpayService implements IProviderService {
 
     payload.sign = this.generateSignature(payload);
 
-    const response = await this.postForm('/payment', payload);
+    // Payout uses DPay `/payment` on `payment.dpayvn.com` (different host than deposit).
+    const response = await this.postFormPayout('/payment', payload);
     const data = response.data || {};
     if (!this.isSuccessCode(data.code)) {
-      return {
-        success: false,
-        error: data.message || data.msg || `DPay withdrawal failed with code ${data.code}`,
-      };
+      return this.dpayApiFailure(
+        data,
+        `DPay withdrawal failed with code ${data.code}`,
+      );
     }
 
     return {
@@ -249,6 +568,48 @@ export class DpayService implements IProviderService {
     }
 
     return axios.post(`${this.baseUrl}${path}`, body.toString(), {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+      },
+    });
+  }
+
+  private async postFormPayout(path: string, payload: Record<string, string>) {
+    const body = new URLSearchParams();
+    for (const [key, value] of Object.entries(payload)) {
+      body.append(key, value ?? '');
+    }
+
+    return axios.post(`${this.payoutBaseUrl}${path}`, body.toString(), {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+      },
+    });
+  }
+
+  private async postFormToLook(path: string, payload: Record<string, string>) {
+    const body = new URLSearchParams();
+    for (const [key, value] of Object.entries(payload)) {
+      body.append(key, value ?? '');
+    }
+
+    return axios.post(`${this.lookBaseUrl}${path}`, body.toString(), {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+      },
+    });
+  }
+
+  private async postFormToPayoutInquiryLook(
+    path: string,
+    payload: Record<string, string>,
+  ) {
+    const body = new URLSearchParams();
+    for (const [key, value] of Object.entries(payload)) {
+      body.append(key, value ?? '');
+    }
+
+    return axios.post(`${this.payoutInquiryLookBaseUrl}${path}`, body.toString(), {
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
       },
@@ -377,6 +738,26 @@ export class DpayService implements IProviderService {
 
   private isSuccessCode(code: any): boolean {
     return String(code ?? '').trim() === '1';
+  }
+
+  /** Map DPay JSON body to a failed ProcessTransactionResponse (preserves `code` / message for merchants). */
+  private dpayApiFailure(data: any, fallback: string): ProcessTransactionResponse {
+    const d = data && typeof data === 'object' ? data : {};
+    const messageText =
+      d.message != null && String(d.message).trim()
+        ? String(d.message)
+        : d.msg != null && String(d.msg).trim()
+          ? String(d.msg)
+          : fallback;
+    return {
+      success: false,
+      error: messageText,
+      providerErrorCode: d.code,
+      providerErrorMessage:
+        d.message != null || d.msg != null
+          ? String(d.message ?? d.msg)
+          : messageText,
+    };
   }
 
   private ensureRequiredFields(payload: Record<string, string>, requiredKeys: string[]) {

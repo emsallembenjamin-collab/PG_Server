@@ -133,10 +133,12 @@ export class PaymentHotService implements IProviderService {
     const queryParams = new URLSearchParams({ ...params, signature });
     const baseUrl = this.checkoutBaseUrl.replace(/\/+$/, '');
 
+    const checkoutUrl = `${baseUrl}/?${queryParams.toString()}`;
     return {
       success: true,
       externalId: orderCode,
-      paymentUrl: `${baseUrl}/?${queryParams.toString()}`,
+      paymentUrl: checkoutUrl,
+      paymentDetails: { url: checkoutUrl, order_code: orderCode },
       status: 'processing',
     };
   }

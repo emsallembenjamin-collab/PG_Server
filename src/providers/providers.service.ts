@@ -113,6 +113,29 @@ export class ProvidersService {
     return service;
   }
 
+  /** DPay Look API — payout order inquiry (`/Look/payment_order`). */
+  payoutInquiryDpay(params: {
+    merchant_num?: string;
+    merchant_order: string;
+    find_date: string;
+  }) {
+    return this.dpayService.payoutInquiry(params);
+  }
+
+  /** DPay Look API — coin / balance inquiry (`/Look/get_coin`). */
+  balanceInquiryDpay(params: {
+    merchant_num?: string;
+    uid?: string;
+    find_date: string;
+  }) {
+    return this.dpayService.balanceInquiry(params);
+  }
+
+  /** DPay channel/bank resource list (`/index/bank_list`). */
+  bankListDpay(params: { pay_type: number; merchant_num?: string }) {
+    return this.dpayService.bankList(params);
+  }
+
   async selectProvider(
     type: 'deposit' | 'withdrawal',
     amount: number,

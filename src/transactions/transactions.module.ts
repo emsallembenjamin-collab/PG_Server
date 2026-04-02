@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { BullModule } from '@nestjs/bull';
 import { TransactionsService } from './transactions.service';
 import { TransactionsController } from './transactions.controller';
+import { FundingController } from './funding.controller';
 import { AdminTransactionsController } from './admin-transactions.controller';
 import { Transaction } from './entities/transaction.entity';
 import { TransactionAttempt } from './entities/transaction-attempt.entity';
@@ -25,7 +26,7 @@ import { PaymentProcessor } from './processors/payment.processor';
     NotificationsModule,
     forwardRef(() => WebhooksModule),
   ],
-  controllers: [TransactionsController, AdminTransactionsController],
+  controllers: [TransactionsController, FundingController, AdminTransactionsController],
   providers: [TransactionsService, PaymentProcessor],
   exports: [TransactionsService],
 })

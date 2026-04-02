@@ -14,8 +14,9 @@ import { CreateTransactionDto } from "./dto/create-transaction.dto";
 import { TransactionStatus } from "./entities/transaction.entity";
 import { ApiKeyGuard } from "../common/guards/api-key.guard";
 import { ApiKey } from "../common/decorators/api-key.decorator";
+import { MERCHANT_INTEGRATION_TAG } from "../docs/swagger-merchant.filter";
 
-@ApiTags("Transactions")
+@ApiTags(MERCHANT_INTEGRATION_TAG, "Transactions")
 @Controller("transactions")
 @UseGuards(ApiKeyGuard)
 @ApiSecurity("api-key")
@@ -24,7 +25,11 @@ export class TransactionsController {
 
   @Post()
   @ApiKey()
-  @ApiOperation({ summary: "Create a new transaction (deposit or withdrawal)" })
+  @ApiOperation({
+    summary: "Create a new transaction (deposit or withdrawal)",
+    description:
+      "Uses the merchant's assigned provider. Prefer POST /funding/deposits or /funding/withdrawals for clearer integration. On success, `payment` contains provider instructions (QR, bank info, URL) when available.",
+  })
   async create(
     @Request() req,
     @Body() createTransactionDto: CreateTransactionDto,
