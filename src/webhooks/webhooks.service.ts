@@ -75,6 +75,10 @@ export class WebhooksService {
     eventType: string,
     payload: any,
   ): Promise<void> {
+
+    console.log('payload', payload);
+    console.log('eventType', eventType);
+    console.log('providerId', providerId);
     const providerTxnId = String(
       payload.txnId ||
         payload.transaction_id ||
