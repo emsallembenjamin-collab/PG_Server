@@ -624,10 +624,7 @@ export class DpayService implements IProviderService {
 
     const keys = this.getKeysForSignature(payload);
     const message = this.buildSignMessage(payload, keys);
-    const raw =
-      this.signSecretPosition === 'prepend'
-        ? `${signingSecret}${message}`
-        : `${message}${signingSecret}`;
+    const raw = `${message}&sign=${signingSecret}`;
 
     let digest = crypto.createHash(this.signAlgorithm).update(raw, 'utf8').digest('hex');
     if (this.signOutputCase === 'upper') {
@@ -639,7 +636,7 @@ export class DpayService implements IProviderService {
     console.log('message', message);
     console.log('keys', keys);
     console.log('payload', payload);
-    
+
     return digest;
   }
 
