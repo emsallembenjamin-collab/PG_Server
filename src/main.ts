@@ -4,7 +4,7 @@ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import { ConfigService } from '@nestjs/config';
-import express from 'express';
+import * as express from 'express';
 import {
   filterOpenApiByTag,
   MERCHANT_INTEGRATION_TAG,

@@ -34,6 +34,8 @@ function htmlShell(params: {
         <a href="${params.apiBase}/merchant-ui">Index</a>
         <a href="${params.apiBase}/merchant-ui/deposit">Deposit</a>
         <a href="${params.apiBase}/merchant-ui/withdrawal">Withdrawal</a>
+        <a href="${params.apiBase}/merchant-ui/deposit-balance">Deposit w/ Balance</a>
+        <a href="${params.apiBase}/merchant-ui/payout-balance">Payout w/ Balance</a>
         <a href="${params.apiBase}/merchant-ui/bank-list">Bank List</a>
         <a href="${params.apiBase}/merchant-ui/balance-inquiry">Balance Inquiry</a>
         <a href="${params.apiBase}/merchant-ui/payout-inquiry">Payout Inquiry</a>
@@ -296,6 +298,285 @@ export class MerchantUiController {
             <label>sandbox (JSON string, optional)</label>
             <textarea name="sandbox"></textarea>
           </div>
+        `,
+      }),
+    );
+  }
+
+  @Get('deposit-balance')
+  depositWithBalance(@Res() res: Response) {
+    const apiBase = this.apiBase();
+    res.type('text/html').send(
+      htmlShell({
+        title: 'Deposit w/ Balance Check',
+        apiBase,
+        content: `
+          <p class="hint">This page loads your DPay <b>coin</b> via <code>/funding/balance-inquiry</code> and warns if amount is greater than available.</p>
+          <div class="row">
+            <form id="deposit-balance-form" onsubmit="return false;">
+              <div class="row">
+                <label>Merchant X-API-Key</label>
+                <input name="apiKey" placeholder="paste your secret key" />
+              </div>
+              <div class="row">
+                <label>amount</label>
+                <input name="amount" type="number" step="0.01" value="50000" oninput="onAmountChanged()" />
+              </div>
+              <div class="row">
+                <label>currency (optional)</label>
+                <input name="currency" value="USD" />
+              </div>
+              <div class="row">
+                <label>reference_id (optional)</label>
+                <input name="reference_id" value="" />
+              </div>
+              <div class="row">
+                <label>idempotency_key (optional)</label>
+                <input name="idempotency_key" value="" />
+              </div>
+              <div class="row">
+                <label>metadata (JSON string)</label>
+                <textarea name="metadata">{
+  "pay_type": 7,
+  "merchant_order": "SH0001",
+  "pay_date": "2022-05-20 11:18:00",
+  "userinfo": "MA THI VAN",
+  "user_ip": "127.0.0.1",
+  "bank_code": 1,
+  "extend": ""
+}</textarea>
+                <div class="hint">Metadata must include DPay channel fields (pay_type, pay_date, userinfo, user_ip, merchant_order...).</div>
+              </div>
+              <div class="row">
+                <label>sandbox (JSON string, optional)</label>
+                <textarea name="sandbox"></textarea>
+              </div>
+
+              <div class="row">
+                <button type="button" onclick="loadBalance()">Load Balance</button>
+                <button type="button" onclick="createDeposit()">Create Deposit</button>
+              </div>
+            </form>
+          </div>
+          <div class="row">
+            <div class="result" id="balance-result">Balance will appear here.</div>
+          </div>
+          <div class="row">
+            <div class="result" id="deposit-result">Deposit response will appear here.</div>
+          </div>
+
+          <script>
+            let cachedCoin = null;
+            function onAmountChanged() {
+              const amountEl = document.querySelector('#deposit-balance-form input[name="amount"]');
+              const amount = Number(amountEl.value);
+              if (cachedCoin !== null && !Number.isNaN(amount)) {
+                const coin = Number(cachedCoin);
+                if (!Number.isNaN(coin) && amount > coin) {
+                  document.getElementById('deposit-result').textContent = 'Warning: amount (' + amount + ') > coin (' + coin + ')';
+                }
+              }
+            }
+
+            async function loadBalance() {
+              const form = document.getElementById('deposit-balance-form');
+              const fd = new FormData(form);
+              const apiKey = fd.get('apiKey');
+              const resultEl = document.getElementById('balance-result');
+              resultEl.textContent = 'Loading...';
+
+              const resp = await fetch('${apiBase}/funding/balance-inquiry', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+                  'X-API-Key': apiKey,
+                },
+                body: '',
+              });
+
+              const text = await resp.text();
+              try {
+                const json = JSON.parse(text);
+                cachedCoin = json?.coin ?? null;
+                resultEl.textContent = JSON.stringify(json, null, 2);
+              } catch {
+                resultEl.textContent = text;
+              }
+            }
+
+            async function createDeposit() {
+              const form = document.getElementById('deposit-balance-form');
+              const resultEl = document.getElementById('deposit-result');
+              const fd = new FormData(form);
+              const apiKey = fd.get('apiKey');
+              resultEl.textContent = 'Sending...';
+
+              const params = new URLSearchParams();
+              for (const [k, v] of fd.entries()) {
+                if (k === 'apiKey') continue;
+                if (v === null || v === undefined) continue;
+                const s = String(v);
+                if (s.trim() === '') continue;
+                params.append(k, s);
+              }
+
+              const resp = await fetch('${apiBase}/funding/deposits', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+                  'X-API-Key': apiKey,
+                },
+                body: params.toString(),
+              });
+
+              const text = await resp.text();
+              try {
+                resultEl.textContent = JSON.stringify(JSON.parse(text), null, 2);
+              } catch {
+                resultEl.textContent = text;
+              }
+            }
+          </script>
+        `,
+      }),
+    );
+  }
+
+  @Get('payout-balance')
+  payoutWithBalance(@Res() res: Response) {
+    const apiBase = this.apiBase();
+    res.type('text/html').send(
+      htmlShell({
+        title: 'Payout w/ Balance Check',
+        apiBase,
+        content: `
+          <p class="hint">This page loads your DPay <b>coin</b> via <code>/funding/balance-inquiry</code> and warns if amount is greater than available.</p>
+          <div class="row">
+            <form id="payout-balance-form" onsubmit="return false;">
+              <div class="row">
+                <label>Merchant X-API-Key</label>
+                <input name="apiKey" placeholder="paste your secret key" />
+              </div>
+              <div class="row">
+                <label>amount</label>
+                <input name="amount" type="number" step="0.01" value="100000" oninput="onAmountChanged()" />
+              </div>
+              <div class="row">
+                <label>currency (optional)</label>
+                <input name="currency" value="USD" />
+              </div>
+              <div class="row">
+                <label>reference_id (optional)</label>
+                <input name="reference_id" value="" />
+              </div>
+              <div class="row">
+                <label>idempotency_key (optional)</label>
+                <input name="idempotency_key" value="" />
+              </div>
+              <div class="row">
+                <label>metadata (JSON string)</label>
+                <textarea name="metadata">{
+  "merchant_order": "SH0001",
+  "order_date": "2022-05-20 11:18:00",
+  "userinfo": "1004",
+  "user_ip": "127.0.0.1",
+  "target_bank": "4122444",
+  "bank_name": "970416",
+  "target_bank_user": "PHAM MANH HUNG",
+  "extend": ""
+}</textarea>
+                <div class="hint">Payout/withdrawal metadata must include DPay fields (target_bank, bank_name, target_bank_user, order_date, userinfo, user_ip, merchant_order...).</div>
+              </div>
+              <div class="row">
+                <label>sandbox (JSON string, optional)</label>
+                <textarea name="sandbox"></textarea>
+              </div>
+
+              <div class="row">
+                <button type="button" onclick="loadBalance()">Load Balance</button>
+                <button type="button" onclick="createWithdrawal()">Create Withdrawal</button>
+              </div>
+            </form>
+          </div>
+          <div class="row">
+            <div class="result" id="balance-result">Balance will appear here.</div>
+          </div>
+          <div class="row">
+            <div class="result" id="withdrawal-result">Withdrawal response will appear here.</div>
+          </div>
+
+          <script>
+            let cachedCoin = null;
+            function onAmountChanged() {
+              const amountEl = document.querySelector('#payout-balance-form input[name="amount"]');
+              const amount = Number(amountEl.value);
+              if (cachedCoin !== null && !Number.isNaN(amount)) {
+                const coin = Number(cachedCoin);
+                if (!Number.isNaN(coin) && amount > coin) {
+                  document.getElementById('withdrawal-result').textContent = 'Warning: amount (' + amount + ') > coin (' + coin + ')';
+                }
+              }
+            }
+
+            async function loadBalance() {
+              const form = document.getElementById('payout-balance-form');
+              const fd = new FormData(form);
+              const apiKey = fd.get('apiKey');
+              const resultEl = document.getElementById('balance-result');
+              resultEl.textContent = 'Loading...';
+
+              const resp = await fetch('${apiBase}/funding/balance-inquiry', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+                  'X-API-Key': apiKey,
+                },
+                body: '',
+              });
+
+              const text = await resp.text();
+              try {
+                const json = JSON.parse(text);
+                cachedCoin = json?.coin ?? null;
+                resultEl.textContent = JSON.stringify(json, null, 2);
+              } catch {
+                resultEl.textContent = text;
+              }
+            }
+
+            async function createWithdrawal() {
+              const form = document.getElementById('payout-balance-form');
+              const resultEl = document.getElementById('withdrawal-result');
+              const fd = new FormData(form);
+              const apiKey = fd.get('apiKey');
+              resultEl.textContent = 'Sending...';
+
+              const params = new URLSearchParams();
+              for (const [k, v] of fd.entries()) {
+                if (k === 'apiKey') continue;
+                if (v === null || v === undefined) continue;
+                const s = String(v);
+                if (s.trim() === '') continue;
+                params.append(k, s);
+              }
+
+              const resp = await fetch('${apiBase}/funding/withdrawals', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+                  'X-API-Key': apiKey,
+                },
+                body: params.toString(),
+              });
+
+              const text = await resp.text();
+              try {
+                resultEl.textContent = JSON.stringify(JSON.parse(text), null, 2);
+              } catch {
+                resultEl.textContent = text;
+              }
+            }
+          </script>
         `,
       }),
     );
