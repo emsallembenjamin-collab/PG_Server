@@ -78,6 +78,13 @@ export class Transaction {
   @Column({ type: 'varchar', length: 32, nullable: true, unique: true })
   public_code: string | null;
 
+  /**
+   * After this time the public payment page stops showing pay-in instructions
+   * (while status is still pending/processing). Set for deposits from `PAYMENT_LINK_TTL_MINUTES`.
+   */
+  @Column({ type: 'datetime', nullable: true })
+  payment_link_expires_at: Date | null;
+
   @CreateDateColumn()
   created_at: Date;
 

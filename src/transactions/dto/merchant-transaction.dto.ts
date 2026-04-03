@@ -11,6 +11,8 @@ export interface MerchantTransactionResponse {
   public_code?: string;
   /** Absolute URL on the merchant portal (configure `MERCHANT_PORTAL_PUBLIC_URL` on GoldPay). */
   payment_url?: string;
+  /** ISO 8601 — after this time the public checkout link no longer shows payment instructions (deposits). */
+  payment_link_expires_at?: string;
   type: string;
   amount: number;
   currency: string;

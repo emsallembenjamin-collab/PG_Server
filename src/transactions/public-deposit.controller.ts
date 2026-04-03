@@ -14,7 +14,7 @@ export class PublicDepositController {
   @ApiOperation({
     summary: 'Get deposit payment instructions (public)',
     description:
-      'Returns the same payment payload as the merchant API for this deposit, keyed by `public_code` (preferred) or legacy `public_token` from the create-deposit response. No API key.',
+      'Returns deposit payment instructions, keyed by `public_code` (preferred) or legacy `public_token`. After `payment_link_expires_at` (while still pending), returns `{ expired: true }` instead of `payment`. No API key.',
   })
   getDepositInstructions(@Param('token') token: string) {
     return this.transactionsService.getPublicDepositInstructions(token);

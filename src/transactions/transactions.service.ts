@@ -111,6 +111,42 @@ export class TransactionsService {
     return `DS${date}${digits.slice(0, 12)}`;
   }
 
+  /** Minutes until the public payment link stops showing pay-in UI (deposits). Clamped 5…10080 (7d). */
+  private getPaymentLinkTtlMinutes(): number {
+    const raw = this.configService.get<string>("PAYMENT_LINK_TTL_MINUTES");
+    const n = Number(raw ?? 30);
+    if (!Number.isFinite(n)) {
+      return 30;
+    }
+    return Math.min(Math.max(Math.floor(n), 5), 10080);
+  }
+
+  private computePaymentLinkExpiresAt(): Date {
+    const ms = this.getPaymentLinkTtlMinutes() * 60 * 1000;
+    return new Date(Date.now() + ms);
+  }
+
+  /**
+   * True when the deposit is still open for payment but the link TTL has passed.
+   * Terminal statuses are not treated as "expired link" — use normal status UI.
+   */
+  private isDepositPaymentLinkExpired(tx: Transaction): boolean {
+    if (tx.type !== TransactionType.DEPOSIT) {
+      return false;
+    }
+    const terminal =
+      tx.status === TransactionStatus.SUCCEEDED ||
+      tx.status === TransactionStatus.FAILED ||
+      tx.status === TransactionStatus.REVERSED;
+    if (terminal) {
+      return false;
+    }
+    if (!tx.payment_link_expires_at) {
+      return false;
+    }
+    return new Date() > new Date(tx.payment_link_expires_at);
+  }
+
   private isSandboxEnabled() {
     const value = String(
       this.configService.get<string>("SANDBOX_MODE_ENABLED", "true"),
@@ -164,6 +200,9 @@ export class TransactionsService {
       public_token: transaction.public_token ?? undefined,
       public_code: transaction.public_code ?? undefined,
       payment_url: this.buildMerchantPaymentUrl(transaction),
+      payment_link_expires_at: transaction.payment_link_expires_at
+        ? new Date(transaction.payment_link_expires_at).toISOString()
+        : undefined,
       type: transaction.type,
       amount: Number(transaction.amount),
       currency: transaction.currency,
@@ -356,6 +395,10 @@ export class TransactionsService {
       status: TransactionStatus.PENDING,
       public_token: this.generatePublicToken(),
       public_code: this.generatePublicCode(),
+      payment_link_expires_at:
+        createTransactionDto.type === TransactionType.DEPOSIT
+          ? this.computePaymentLinkExpiresAt()
+          : null,
       metadata: (() => {
         const metadata = buildSandboxMetadata(
           createTransactionDto.metadata,
@@ -484,12 +527,32 @@ export class TransactionsService {
       throw new NotFoundException();
     }
 
+    if (this.isDepositPaymentLinkExpired(tx)) {
+      const expires = tx.payment_link_expires_at
+        ? new Date(tx.payment_link_expires_at).toISOString()
+        : new Date(0).toISOString();
+      return {
+        expired: true,
+        transaction_id: tx.id,
+        public_code: tx.public_code ?? undefined,
+        payment_link_expires_at: expires,
+        type: 'deposit',
+        amount: Number(tx.amount),
+        currency: tx.currency,
+        status: tx.status,
+        message:
+          'This payment link has expired. Please ask the merchant for a new deposit link.',
+      };
+    }
+
     const mapped = this.mapTransactionForMerchant(tx);
     const { merchant_id: _m, id, public_token: _pt, ...rest } = mapped;
 
     return {
+      expired: false,
       transaction_id: id,
       public_code: tx.public_code ?? undefined,
+      payment_link_expires_at: rest.payment_link_expires_at,
       type: 'deposit',
       amount: rest.amount,
       currency: rest.currency,
