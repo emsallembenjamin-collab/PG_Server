@@ -13,6 +13,7 @@ import { IdempotencyModule } from '../idempotency/idempotency.module';
 import { WebhooksModule } from '../webhooks/webhooks.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { PaymentProcessor } from './processors/payment.processor';
+import { PublicDepositController } from './public-deposit.controller';
 
 @Module({
   imports: [
@@ -26,7 +27,12 @@ import { PaymentProcessor } from './processors/payment.processor';
     NotificationsModule,
     forwardRef(() => WebhooksModule),
   ],
-  controllers: [TransactionsController, FundingController, AdminTransactionsController],
+  controllers: [
+    TransactionsController,
+    FundingController,
+    AdminTransactionsController,
+    PublicDepositController,
+  ],
   providers: [TransactionsService, PaymentProcessor],
   exports: [TransactionsService],
 })

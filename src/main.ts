@@ -27,10 +27,18 @@ async function bootstrap() {
     app.set('trust proxy', trustProxy);
   }
 
-  // CORS
+  // CORS — explicit headers so browsers preflight PATCH with X-API-Key / Authorization
   app.enableCors({
     origin: true,
     credentials: true,
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'X-API-Key',
+      'x-api-key',
+      'Accept',
+      'Idempotency-Key',
+    ],
   });
 
   // Allow merchants to submit HTML forms (`application/x-www-form-urlencoded`).

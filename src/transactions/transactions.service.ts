@@ -5,9 +5,10 @@ import {
   BadRequestException,
   forwardRef,
 } from "@nestjs/common";
+import * as crypto from "crypto";
 import { ConfigService } from "@nestjs/config";
-import { InjectRepository } from "@nestjs/typeorm";
-import { Brackets, Repository } from "typeorm";
+import { InjectDataSource, InjectRepository } from "@nestjs/typeorm";
+import { Brackets, DataSource, Repository } from "typeorm";
 import { InjectQueue } from "@nestjs/bull";
 import { Queue } from "bull";
 import {
@@ -35,6 +36,7 @@ import {
   SANDBOX_PROVIDER_NAME,
 } from "./sandbox.utils";
 import { MerchantTransactionResponse } from "./dto/merchant-transaction.dto";
+import { PublicDepositInstructionsResponse } from "./dto/public-deposit-instructions.dto";
 import { PayoutInquiryDto } from "./dto/payout-inquiry.dto";
 import { MerchantPayoutInquiryResponse } from "./dto/merchant-payout-inquiry.response";
 import type { DpayPayoutInquiryError } from "../providers/providers/dpay/dpay-payout-inquiry.types";
@@ -61,10 +63,16 @@ export class TransactionsService {
     private webhooksService: WebhooksService,
     @InjectQueue("payment-processing")
     private paymentQueue: Queue,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
   ) {}
 
   private formatAmount(amount: number, currency: string) {
     return `${Number(amount).toFixed(2)} ${currency}`;
+  }
+
+  private generatePublicToken(): string {
+    return crypto.randomBytes(32).toString('hex');
   }
 
   private isSandboxEnabled() {
@@ -117,6 +125,7 @@ export class TransactionsService {
     return {
       id: transaction.id,
       merchant_id: transaction.merchant_id,
+      public_token: transaction.public_token ?? undefined,
       type: transaction.type,
       amount: Number(transaction.amount),
       currency: transaction.currency,
@@ -307,6 +316,7 @@ export class TransactionsService {
       currency: createTransactionDto.currency || "USD",
       reference_id: createTransactionDto.reference_id,
       status: TransactionStatus.PENDING,
+      public_token: this.generatePublicToken(),
       metadata: (() => {
         const metadata = buildSandboxMetadata(
           createTransactionDto.metadata,
@@ -316,7 +326,18 @@ export class TransactionsService {
       })(),
     });
 
-    const savedTransaction = await this.transactionRepository.save(transaction);
+    const savedTransaction = await this.dataSource.transaction(async (manager) => {
+      const saved = await manager.save(transaction);
+      if (saved.type === TransactionType.WITHDRAWAL) {
+        await this.merchantsService.lockFundsForWithdrawal(
+          manager,
+          merchantId,
+          Number(saved.amount),
+          saved.currency,
+        );
+      }
+      return saved;
+    });
 
     const processMetadata =
       buildSandboxMetadata(
@@ -402,6 +423,47 @@ export class TransactionsService {
     }
 
     return response;
+  }
+
+  /**
+   * Public payment page for deposits — keyed by unguessable `public_token` (no API key).
+   */
+  async getPublicDepositInstructions(
+    token: string,
+  ): Promise<PublicDepositInstructionsResponse> {
+    const trimmed = (token || '').trim();
+    if (!trimmed || trimmed.length < 32) {
+      throw new NotFoundException();
+    }
+
+    const tx = await this.transactionRepository.findOne({
+      where: { public_token: trimmed },
+      relations: ['provider'],
+    });
+
+    if (!tx || tx.type !== TransactionType.DEPOSIT) {
+      throw new NotFoundException();
+    }
+
+    const mapped = this.mapTransactionForMerchant(tx);
+    const { merchant_id: _m, id, public_token: _pt, ...rest } = mapped;
+
+    return {
+      transaction_id: id,
+      type: 'deposit',
+      amount: rest.amount,
+      currency: rest.currency,
+      reference_id: rest.reference_id,
+      external_id: rest.external_id,
+      status: rest.status,
+      failure_reason: rest.failure_reason,
+      metadata: rest.metadata,
+      provider: rest.provider,
+      payment: rest.payment,
+      provider_error: rest.provider_error,
+      created_at: rest.created_at,
+      updated_at: rest.updated_at,
+    };
   }
 
   /**
@@ -757,29 +819,53 @@ export class TransactionsService {
     externalId?: string,
     failureReason?: string,
   ): Promise<Transaction> {
-    const transaction = await this.findOne(id);
-    const previousStatus = transaction.status;
+    const { savedTransaction, previousStatus, merchantName } =
+      await this.dataSource.transaction(async (manager) => {
+        const transaction = await manager.findOne(Transaction, {
+          where: { id },
+          relations: ["merchant"],
+          lock: { mode: "pessimistic_write" },
+        });
 
-    transaction.status = status;
-    if (externalId) {
-      transaction.external_id = externalId;
-    }
-    if (status === TransactionStatus.FAILED) {
-      transaction.failure_reason = failureReason ?? transaction.failure_reason;
-    } else if (failureReason !== undefined) {
-      transaction.failure_reason = failureReason;
-    } else {
-      transaction.failure_reason = null;
-    }
+        if (!transaction) {
+          throw new NotFoundException(`Transaction with ID ${id} not found`);
+        }
 
-    const savedTransaction = await this.transactionRepository.save(transaction);
+        const previousStatus = transaction.status;
+
+        transaction.status = status;
+        if (externalId) {
+          transaction.external_id = externalId;
+        }
+        if (status === TransactionStatus.FAILED) {
+          transaction.failure_reason = failureReason ?? transaction.failure_reason;
+        } else if (failureReason !== undefined) {
+          transaction.failure_reason = failureReason;
+        } else {
+          transaction.failure_reason = null;
+        }
+
+        const savedTransaction = await manager.save(transaction);
+
+        if (previousStatus !== status) {
+          await this.merchantsService.applyLedgerForStatusChange(
+            manager,
+            savedTransaction,
+            previousStatus,
+            status,
+          );
+        }
+
+        const merchantName = transaction.merchant?.name ?? "Merchant";
+
+        return { savedTransaction, previousStatus, merchantName };
+      });
 
     if (previousStatus !== status) {
       const amountLabel = this.formatAmount(
         savedTransaction.amount,
         savedTransaction.currency,
       );
-      const merchantName = transaction.merchant?.name ?? "Merchant";
       const statusLabel = status.toUpperCase();
 
       await Promise.all([

@@ -5,6 +5,8 @@
 export interface MerchantTransactionResponse {
   id: number;
   merchant_id: number;
+  /** Share `payment_page_url` or `/pay/{public_token}` on the merchant portal so customers can pay without logging in. */
+  public_token?: string;
   type: string;
   amount: number;
   currency: string;

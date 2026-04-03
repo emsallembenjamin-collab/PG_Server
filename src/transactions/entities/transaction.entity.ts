@@ -64,6 +64,13 @@ export class Transaction {
   @Column({ type: 'text', nullable: true })
   failure_reason: string;
 
+  /**
+   * Unguessable token for public payment-instruction pages (no API key).
+   * Set when the transaction row is created.
+   */
+  @Column({ type: 'varchar', length: 64, nullable: true, unique: true })
+  public_token: string | null;
+
   @CreateDateColumn()
   created_at: Date;
 

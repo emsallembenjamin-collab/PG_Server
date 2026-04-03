@@ -21,6 +21,11 @@ describe("TransactionsService sandbox guards", () => {
       {} as any,
       { deliverMerchantWebhook: jest.fn() } as any,
       {} as any,
+      {
+        transaction: jest.fn(async (fn: (m: unknown) => Promise<unknown>) =>
+          fn({}),
+        ),
+      } as any,
     );
   }
 

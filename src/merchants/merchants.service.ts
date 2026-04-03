@@ -1,11 +1,27 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
 import * as crypto from 'crypto';
 import { Merchant, MerchantStatus } from './entities/merchant.entity';
+import {
+  Transaction,
+  TransactionStatus,
+  TransactionType,
+} from '../transactions/entities/transaction.entity';
+import {
+  merchantBalanceCurrency,
+  parseMoney,
+  roundMoney,
+} from './merchant-balance.util';
 import { MerchantApiKey, ApiKeyStatus } from './entities/merchant-api-key.entity';
 import { CreateMerchantDto } from './dto/create-merchant.dto';
 import { UpdateMerchantDto } from './dto/update-merchant.dto';
+import { UpdateMerchantProfileDto } from './dto/update-merchant-profile.dto';
 import { ProviderStatus } from '../providers/entities/provider.entity';
 import { ProvidersService } from '../providers/providers.service';
 import { normalizeIpList } from '../common/utils/ip.utils';
@@ -70,6 +86,35 @@ export class MerchantsService {
 
     if (updateMerchantDto.whitelisted_ips !== undefined) {
       merchant.whitelisted_ips = normalizeIpList(updateMerchantDto.whitelisted_ips);
+    }
+
+    if (typeof updateMerchantDto.balance_currency === 'string') {
+      merchant.balance_currency = updateMerchantDto.balance_currency.trim().toUpperCase();
+    }
+
+    return this.merchantRepository.save(merchant);
+  }
+
+  async updateProfile(
+    id: number,
+    dto: UpdateMerchantProfileDto,
+  ): Promise<Merchant> {
+    const merchant = await this.findOne(id);
+
+    if (typeof dto.name === 'string') {
+      merchant.name = dto.name.trim();
+    }
+    if (typeof dto.email === 'string') {
+      merchant.email = dto.email.trim().toLowerCase();
+    }
+    if (dto.phone !== undefined) {
+      merchant.phone = dto.phone?.trim() || null;
+    }
+    if (dto.username !== undefined) {
+      merchant.username = dto.username?.trim() || null;
+    }
+    if (dto.bio !== undefined) {
+      merchant.bio = dto.bio?.trim() || null;
     }
 
     return this.merchantRepository.save(merchant);
@@ -208,5 +253,140 @@ export class MerchantsService {
       return null;
     }
     return merchant.provider;
+  }
+
+  /**
+   * Reserve funds for a new withdrawal (pending/processing). Caller must run inside a DB transaction.
+   */
+  async lockFundsForWithdrawal(
+    manager: EntityManager,
+    merchantId: number,
+    amount: number,
+    currency: string,
+  ): Promise<void> {
+    const cur = (currency || 'USD').trim().toUpperCase();
+    const merchant = await manager
+      .createQueryBuilder(Merchant, 'm')
+      .setLock('pessimistic_write')
+      .where('m.id = :id', { id: merchantId })
+      .getOne();
+
+    if (!merchant) {
+      throw new NotFoundException(`Merchant with ID ${merchantId} not found`);
+    }
+
+    const ledgerCurrency = merchantBalanceCurrency(merchant);
+    if (cur !== ledgerCurrency) {
+      throw new BadRequestException(
+        `Withdrawals must use merchant balance currency ${ledgerCurrency} (got ${cur})`,
+      );
+    }
+
+    const amt = roundMoney(amount);
+    if (amt <= 0) {
+      throw new BadRequestException('Withdrawal amount must be positive');
+    }
+
+    const available = parseMoney(merchant.balance_available);
+    if (available + 1e-9 < amt) {
+      throw new BadRequestException('Insufficient available balance');
+    }
+
+    const locked = parseMoney(merchant.balance_locked);
+    merchant.balance_available = String(roundMoney(available - amt));
+    merchant.balance_locked = String(roundMoney(locked + amt));
+    await manager.save(merchant);
+  }
+
+  /**
+   * Apply ledger effects when a transaction status changes. Caller must run inside a DB transaction.
+   */
+  async applyLedgerForStatusChange(
+    manager: EntityManager,
+    tx: Transaction,
+    previousStatus: TransactionStatus,
+    newStatus: TransactionStatus,
+  ): Promise<void> {
+    if (previousStatus === newStatus) {
+      return;
+    }
+
+    const merchant = await manager
+      .createQueryBuilder(Merchant, 'm')
+      .setLock('pessimistic_write')
+      .where('m.id = :id', { id: tx.merchant_id })
+      .getOne();
+
+    if (!merchant) {
+      throw new NotFoundException(`Merchant with ID ${tx.merchant_id} not found`);
+    }
+
+    const cur = (tx.currency || 'USD').trim().toUpperCase();
+    if (cur !== merchantBalanceCurrency(merchant)) {
+      return;
+    }
+
+    const amount = roundMoney(Number(tx.amount));
+
+    if (tx.type === TransactionType.DEPOSIT) {
+      if (
+        newStatus === TransactionStatus.SUCCEEDED &&
+        previousStatus !== TransactionStatus.SUCCEEDED
+      ) {
+        const available = parseMoney(merchant.balance_available);
+        merchant.balance_available = String(roundMoney(available + amount));
+        await manager.save(merchant);
+      } else if (
+        newStatus === TransactionStatus.REVERSED &&
+        previousStatus === TransactionStatus.SUCCEEDED
+      ) {
+        const available = parseMoney(merchant.balance_available);
+        if (available + 1e-9 < amount) {
+          throw new InternalServerErrorException(
+            'Ledger inconsistency: cannot reverse deposit — insufficient available balance',
+          );
+        }
+        merchant.balance_available = String(roundMoney(available - amount));
+        await manager.save(merchant);
+      }
+      return;
+    }
+
+    if (tx.type === TransactionType.WITHDRAWAL) {
+      const wasInFlight =
+        previousStatus === TransactionStatus.PENDING ||
+        previousStatus === TransactionStatus.PROCESSING;
+
+      if (
+        (newStatus === TransactionStatus.FAILED ||
+          newStatus === TransactionStatus.REVERSED) &&
+        wasInFlight
+      ) {
+        const locked = parseMoney(merchant.balance_locked);
+        if (locked + 1e-9 < amount) {
+          throw new InternalServerErrorException(
+            'Ledger inconsistency: cannot unlock withdrawal — insufficient locked balance',
+          );
+        }
+        const available = parseMoney(merchant.balance_available);
+        merchant.balance_locked = String(roundMoney(locked - amount));
+        merchant.balance_available = String(roundMoney(available + amount));
+        await manager.save(merchant);
+      } else if (
+        newStatus === TransactionStatus.SUCCEEDED &&
+        (previousStatus === TransactionStatus.PENDING ||
+          previousStatus === TransactionStatus.PROCESSING)
+      ) {
+        const locked = parseMoney(merchant.balance_locked);
+        if (locked + 1e-9 < amount) {
+          throw new InternalServerErrorException(
+            'Ledger inconsistency: cannot settle withdrawal — insufficient locked balance',
+          );
+        }
+        merchant.balance_locked = String(roundMoney(locked - amount));
+        await manager.save(merchant);
+      }
+      return;
+    }
   }
 }

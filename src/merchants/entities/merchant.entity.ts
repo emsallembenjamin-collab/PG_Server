@@ -49,6 +49,27 @@ export class Merchant {
   @Column({ nullable: true })
   provider_id: number; // Assigned provider (one per merchant)
 
+  @Column({ type: 'varchar', length: 50, nullable: true })
+  phone: string | null;
+
+  @Column({ type: 'varchar', length: 128, nullable: true })
+  username: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  bio: string | null;
+
+  /** Ledger currency (ISO 4217). Withdrawals must match; deposits credit only when currency matches. */
+  @Column({ type: 'varchar', length: 3, default: 'USD' })
+  balance_currency: string;
+
+  /** Spendable balance (deposits succeed here; withdrawals reserve from here into locked). */
+  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0 })
+  balance_available: string;
+
+  /** Amount reserved for in-flight withdrawals until settled or released. */
+  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0 })
+  balance_locked: string;
+
   @CreateDateColumn()
   created_at: Date;
 

@@ -8,6 +8,7 @@ import {
 import { Reflector } from '@nestjs/core';
 import { IS_API_KEY } from '../decorators/api-key.decorator';
 import { MerchantsService } from '../../merchants/merchants.service';
+import { extractMerchantApiKey } from '../utils/api-key-extract.util';
 import { isIpWhitelisted, normalizeIp } from '../utils/ip.utils';
 
 @Injectable()
@@ -28,8 +29,7 @@ export class ApiKeyGuard implements CanActivate {
     }
 
     const request = context.switchToHttp().getRequest();
-    const headerValue = request.headers['x-api-key'];
-    const apiKey = Array.isArray(headerValue) ? headerValue[0] : headerValue;
+    const apiKey = extractMerchantApiKey(request);
 
     if (!apiKey) {
       throw new UnauthorizedException('API key is required');
