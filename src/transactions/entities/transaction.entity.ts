@@ -71,6 +71,13 @@ export class Transaction {
   @Column({ type: 'varchar', length: 64, nullable: true, unique: true })
   public_token: string | null;
 
+  /**
+   * Human-readable unique code for checkout URLs (e.g. DS20260402123456789012).
+   * Preferred over `public_token` in `payment_url` and public links.
+   */
+  @Column({ type: 'varchar', length: 32, nullable: true, unique: true })
+  public_code: string | null;
+
   @CreateDateColumn()
   created_at: Date;
 

@@ -14,7 +14,7 @@ export class PublicDepositController {
   @ApiOperation({
     summary: 'Get deposit payment instructions (public)',
     description:
-      'Returns the same payment payload as the merchant API for this deposit, keyed by `public_token` from the create-deposit response. No API key.',
+      'Returns the same payment payload as the merchant API for this deposit, keyed by `public_code` (preferred) or legacy `public_token` from the create-deposit response. No API key.',
   })
   getDepositInstructions(@Param('token') token: string) {
     return this.transactionsService.getPublicDepositInstructions(token);

@@ -5,8 +5,12 @@
 export interface MerchantTransactionResponse {
   id: number;
   merchant_id: number;
-  /** Share `payment_page_url` or `/pay/{public_token}` on the merchant portal so customers can pay without logging in. */
+  /** Legacy opaque token; still valid for `/pay/{public_token}`. */
   public_token?: string;
+  /** Unique checkout code (e.g. DS20260402…); preferred segment in `payment_url`. */
+  public_code?: string;
+  /** Absolute URL on the merchant portal (configure `MERCHANT_PORTAL_PUBLIC_URL` on GoldPay). */
+  payment_url?: string;
   type: string;
   amount: number;
   currency: string;

@@ -4,6 +4,8 @@
  */
 export interface PublicDepositInstructionsResponse {
   transaction_id: number;
+  /** Same code used in `/pay/{public_code}` when present. */
+  public_code?: string;
   type: 'deposit';
   amount: number;
   currency: string;

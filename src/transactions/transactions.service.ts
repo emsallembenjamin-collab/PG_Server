@@ -71,8 +71,44 @@ export class TransactionsService {
     return `${Number(amount).toFixed(2)} ${currency}`;
   }
 
+  /**
+   * Customer-facing checkout on the merchant portal (`/pay/{public_code}` preferred).
+   * Set `MERCHANT_PORTAL_PUBLIC_URL` to the portal origin including any path prefix
+   * (e.g. `https://pay.example.com/merchant` when Next.js `basePath` is `/merchant`).
+   */
+  private buildMerchantPaymentUrl(transaction: Transaction): string | undefined {
+    const segment = transaction.public_code || transaction.public_token;
+    if (!segment) {
+      return undefined;
+    }
+    const raw = this.configService.get<string>("MERCHANT_PORTAL_PUBLIC_URL");
+    const base = raw?.trim().replace(/\/$/, "");
+    if (!base) {
+      return undefined;
+    }
+    return `${base}/pay/${encodeURIComponent(segment)}`;
+  }
+
   private generatePublicToken(): string {
     return crypto.randomBytes(32).toString('hex');
+  }
+
+  /** Format: DS + YYYYMMDD + 12 random digits (e.g. DS20260402123456789012). */
+  private generatePublicCode(): string {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const d = String(now.getDate()).padStart(2, '0');
+    const date = `${y}${m}${d}`;
+    let digits = '';
+    const buf = crypto.randomBytes(16);
+    for (let i = 0; i < buf.length && digits.length < 12; i++) {
+      digits += (buf[i] % 10).toString();
+    }
+    while (digits.length < 12) {
+      digits += String(Math.floor(Math.random() * 10));
+    }
+    return `DS${date}${digits.slice(0, 12)}`;
   }
 
   private isSandboxEnabled() {
@@ -126,6 +162,8 @@ export class TransactionsService {
       id: transaction.id,
       merchant_id: transaction.merchant_id,
       public_token: transaction.public_token ?? undefined,
+      public_code: transaction.public_code ?? undefined,
+      payment_url: this.buildMerchantPaymentUrl(transaction),
       type: transaction.type,
       amount: Number(transaction.amount),
       currency: transaction.currency,
@@ -317,6 +355,7 @@ export class TransactionsService {
       reference_id: createTransactionDto.reference_id,
       status: TransactionStatus.PENDING,
       public_token: this.generatePublicToken(),
+      public_code: this.generatePublicCode(),
       metadata: (() => {
         const metadata = buildSandboxMetadata(
           createTransactionDto.metadata,
@@ -426,18 +465,18 @@ export class TransactionsService {
   }
 
   /**
-   * Public payment page for deposits — keyed by unguessable `public_token` (no API key).
+   * Public payment page for deposits — keyed by `public_code` (preferred) or legacy `public_token` (no API key).
    */
   async getPublicDepositInstructions(
     token: string,
   ): Promise<PublicDepositInstructionsResponse> {
     const trimmed = (token || '').trim();
-    if (!trimmed || trimmed.length < 32) {
+    if (!trimmed || trimmed.length < 8) {
       throw new NotFoundException();
     }
 
     const tx = await this.transactionRepository.findOne({
-      where: { public_token: trimmed },
+      where: [{ public_code: trimmed }, { public_token: trimmed }],
       relations: ['provider'],
     });
 
@@ -450,6 +489,7 @@ export class TransactionsService {
 
     return {
       transaction_id: id,
+      public_code: tx.public_code ?? undefined,
       type: 'deposit',
       amount: rest.amount,
       currency: rest.currency,
