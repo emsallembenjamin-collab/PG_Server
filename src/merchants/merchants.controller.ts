@@ -13,17 +13,30 @@ import { MerchantsService } from './merchants.service';
 import { CreateMerchantDto } from './dto/create-merchant.dto';
 import { UpdateMerchantDto } from './dto/update-merchant.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { Merchant } from './entities/merchant.entity';
+import { serializeMerchantBalances } from './merchant-balance.util';
+
 @ApiTags('Merchants (Admin)')
 @Controller('merchants')
 export class MerchantsController {
   constructor(private readonly merchantsService: MerchantsService) {}
+
+  /** Same normalized ledger shape as `GET /merchants/me` (multi-currency internal balances). */
+  private toMerchantResponse(merchant: Merchant) {
+    return {
+      ...merchant,
+      ...serializeMerchantBalances(merchant),
+    };
+  }
 
   @Post()
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Create a new merchant' })
   async create(@Body() createMerchantDto: CreateMerchantDto) {
-    return this.merchantsService.create(createMerchantDto);
+    const created = await this.merchantsService.create(createMerchantDto);
+    const merchant = await this.merchantsService.findOne(created.id);
+    return this.toMerchantResponse(merchant);
   }
 
   @Get()
@@ -31,7 +44,8 @@ export class MerchantsController {
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get all merchants' })
   async findAll() {
-    return this.merchantsService.findAll();
+    const list = await this.merchantsService.findAll();
+    return list.map((m) => this.toMerchantResponse(m));
   }
 
   @Get(':id')
@@ -39,7 +53,8 @@ export class MerchantsController {
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get merchant by ID' })
   async findOne(@Param('id') id: string) {
-    return this.merchantsService.findOne(+id);
+    const merchant = await this.merchantsService.findOne(+id);
+    return this.toMerchantResponse(merchant);
   }
 
   @Patch(':id')
@@ -50,7 +65,9 @@ export class MerchantsController {
     @Param('id') id: string,
     @Body() updateMerchantDto: UpdateMerchantDto,
   ) {
-    return this.merchantsService.update(+id, updateMerchantDto);
+    await this.merchantsService.update(+id, updateMerchantDto);
+    const merchant = await this.merchantsService.findOne(+id);
+    return this.toMerchantResponse(merchant);
   }
 
   @Get(':id/api-keys')
