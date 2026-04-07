@@ -12,6 +12,8 @@ import { Merchant } from './merchant.entity';
 import { Currency } from '../../currencies/entities/currency.entity';
 
 @Entity('merchant_balances')
+/** Supports FK on `merchant_id` so the composite unique index can be altered/dropped during migrations/sync. */
+@Index('IDX_merchant_balances_merchant_id', ['merchant_id'])
 @Index('UQ_merchant_bal_merchant_currency', ['merchant_id', 'currency_id'], {
   unique: true,
 })
