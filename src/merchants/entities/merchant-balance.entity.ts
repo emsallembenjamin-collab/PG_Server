@@ -9,9 +9,10 @@ import {
   Index,
 } from 'typeorm';
 import { Merchant } from './merchant.entity';
+import { Currency } from '../../currencies/entities/currency.entity';
 
 @Entity('merchant_balances')
-@Index('UQ_merchant_bal_merchant_currency', ['merchant_id', 'currency'], {
+@Index('UQ_merchant_bal_merchant_currency', ['merchant_id', 'currency_id'], {
   unique: true,
 })
 export class MerchantBalance {
@@ -25,9 +26,13 @@ export class MerchantBalance {
   @JoinColumn({ name: 'merchant_id' })
   merchant: Merchant;
 
-  /** ISO 4217, stored uppercase. */
-  @Column({ type: 'varchar', length: 3 })
-  currency: string;
+  /** FK to `currencies.id` (not ISO code — use `currency` relation for `code`). */
+  @Column()
+  currency_id: number;
+
+  @ManyToOne(() => Currency, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'currency_id' })
+  currency: Currency;
 
   @Column({ type: 'decimal', precision: 15, scale: 2, default: 0 })
   balance_available: string;

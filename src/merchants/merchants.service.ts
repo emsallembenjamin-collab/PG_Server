@@ -9,6 +9,7 @@ import { EntityManager, Repository } from 'typeorm';
 import * as crypto from 'crypto';
 import { Merchant, MerchantStatus } from './entities/merchant.entity';
 import { MerchantBalance } from './entities/merchant-balance.entity';
+import { Currency } from '../currencies/entities/currency.entity';
 import {
   Transaction,
   TransactionStatus,
@@ -47,14 +48,14 @@ export class MerchantsService {
 
   async findAll(): Promise<Merchant[]> {
     return this.merchantRepository.find({
-      relations: ['provider', 'balances'],
+      relations: ['provider', 'balances', 'balances.currency'],
     });
   }
 
   async findOne(id: number): Promise<Merchant> {
     const merchant = await this.merchantRepository.findOne({
       where: { id },
-      relations: ['provider', 'balances'],
+      relations: ['provider', 'balances', 'balances.currency'],
     });
     if (!merchant) {
       throw new NotFoundException(`Merchant with ID ${id} not found`);
@@ -119,7 +120,7 @@ export class MerchantsService {
 
     const apiKeyRecord = await this.apiKeyRepository.findOne({
       where: { key_hash: hashedKey, status: ApiKeyStatus.ACTIVE },
-      relations: ['merchant', 'merchant.balances'],
+      relations: ['merchant', 'merchant.balances', 'merchant.balances.currency'],
     });
 
     if (!apiKeyRecord || apiKeyRecord.merchant.status !== MerchantStatus.ACTIVE) {
@@ -258,7 +259,27 @@ export class MerchantsService {
   }
 
   /**
+   * Resolves ISO 4217 code (e.g. from transactions) to `currencies.id`.
+   */
+  private async resolveCurrencyIdByCode(
+    manager: EntityManager,
+    currencyCode: string,
+  ): Promise<number> {
+    const code = (currencyCode || 'USD').trim().toUpperCase();
+    const row = await manager
+      .createQueryBuilder(Currency, 'c')
+      .where('c.code = :code', { code })
+      .getOne();
+
+    if (!row) {
+      throw new BadRequestException(`Unknown currency code: ${code}`);
+    }
+    return row.id;
+  }
+
+  /**
    * Returns the balance row for (merchant, currency) with a pessimistic lock, creating a zero row if needed.
+   * `currency` is an ISO code; ledger rows are keyed by `currencies.id`.
    * Caller must run inside a DB transaction.
    */
   async lockMerchantBalanceRow(
@@ -266,7 +287,7 @@ export class MerchantsService {
     merchantId: number,
     currency: string,
   ): Promise<MerchantBalance> {
-    const cur = (currency || 'USD').trim().toUpperCase();
+    const currencyId = await this.resolveCurrencyIdByCode(manager, currency);
 
     const merchant = await manager
       .createQueryBuilder(Merchant, 'm')
@@ -279,12 +300,12 @@ export class MerchantsService {
     }
 
     for (let attempt = 0; attempt < 4; attempt++) {
-      let row = await manager
+      const row = await manager
         .createQueryBuilder(MerchantBalance, 'b')
         .setLock('pessimistic_write')
-        .where('b.merchant_id = :mid AND b.currency = :cur', {
+        .where('b.merchant_id = :mid AND b.currency_id = :cid', {
           mid: merchantId,
-          cur,
+          cid: currencyId,
         })
         .getOne();
 
@@ -295,7 +316,7 @@ export class MerchantsService {
       try {
         const created = manager.create(MerchantBalance, {
           merchant_id: merchantId,
-          currency: cur,
+          currency_id: currencyId,
           balance_available: '0',
           balance_locked: '0',
         });
@@ -310,9 +331,9 @@ export class MerchantsService {
     const row = await manager
       .createQueryBuilder(MerchantBalance, 'b')
       .setLock('pessimistic_write')
-      .where('b.merchant_id = :mid AND b.currency = :cur', {
+      .where('b.merchant_id = :mid AND b.currency_id = :cid', {
         mid: merchantId,
-        cur,
+        cid: currencyId,
       })
       .getOne();
 
@@ -333,7 +354,6 @@ export class MerchantsService {
     amount: number,
     currency: string,
   ): Promise<void> {
-    const cur = (currency || 'USD').trim().toUpperCase();
     const amt = roundMoney(amount);
     if (amt <= 0) {
       throw new BadRequestException('Withdrawal amount must be positive');
@@ -342,7 +362,7 @@ export class MerchantsService {
     const balanceRow = await this.lockMerchantBalanceRow(
       manager,
       merchantId,
-      cur,
+      currency || 'USD',
     );
 
     const available = parseMoney(balanceRow.balance_available);

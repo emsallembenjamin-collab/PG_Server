@@ -1,5 +1,6 @@
 import { Merchant } from './entities/merchant.entity';
 import { MerchantBalance } from './entities/merchant-balance.entity';
+import { Currency } from '../currencies/entities/currency.entity';
 
 export function parseMoney(value: string | number | null | undefined): number {
   if (value === null || value === undefined) return 0;
@@ -18,11 +19,13 @@ export type MerchantBalanceView = {
   balance_total: number;
 };
 
-function normalizeBalanceRows(balances: MerchantBalance[] | undefined): MerchantBalanceView[] {
+function normalizeBalanceRows(
+  balances: (MerchantBalance & { currency?: Currency })[] | undefined,
+): MerchantBalanceView[] {
   const rows = balances ?? [];
   return rows
     .map((b) => {
-      const currency = (b.currency || 'USD').trim().toUpperCase();
+      const currency = (b.currency?.code || 'USD').trim().toUpperCase();
       const available = roundMoney(parseMoney(b.balance_available));
       const locked = roundMoney(parseMoney(b.balance_locked));
       return {
@@ -37,7 +40,9 @@ function normalizeBalanceRows(balances: MerchantBalance[] | undefined): Merchant
 
 /** Flat fields mirror the primary row (USD if present, else first by currency code) for backward compatibility. */
 export function serializeMerchantBalances(
-  merchant: Merchant & { balances?: MerchantBalance[] },
+  merchant: Merchant & {
+    balances?: (MerchantBalance & { currency?: Currency })[];
+  },
 ) {
   const balances = normalizeBalanceRows(merchant.balances);
   const primary = balances.find((x) => x.currency === 'USD') ?? balances[0];
