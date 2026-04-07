@@ -22,7 +22,7 @@ DPay requires signing and the payout bank details.
 | `coin` | yes | merchant withdrawal `amount` (rounded) |
 | `userinfo` | yes | `metadata.userinfo` or `metadata.member_id` (fallback: `order`) |
 | `target_bank` | yes | `metadata.target_bank` or `metadata.target_bank_number` |
-| `bank_name` | yes | `metadata.bank_name` or `metadata.bank_code` (bank code) |
+| `bank_name` | yes | Vietnam Napas/BIN sent to DPay: GoldPay resolves `vietnam_bank_codes` when metadata matches a **code** (e.g. `970436`) or **abbreviation** (e.g. `VCB`) via `vietnam_bank_code`, `vietnam_bank_bin`, `bank_code`, then `bank_name`. If no row matches, the raw `metadata.bank_name` / `bank_code` is used (e.g. DPay `bank_list` channel code). See `GET /api/v1/banks/vietnam-codes`. |
 | `target_bank_user` | yes | `metadata.target_bank_user` or `metadata.bank_user` |
 | `extend` | yes | `metadata.extend` (default: `""`; for India put IFSC) |
 | `order_date` | yes | `metadata.order_date` formatted as `YYYY-MM-DD HH:mm:ss` (if omitted, GoldPay generates current time in +7 timezone) |

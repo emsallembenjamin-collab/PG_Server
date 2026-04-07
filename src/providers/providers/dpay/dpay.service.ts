@@ -10,6 +10,7 @@ import {
 import type { DpayPayoutInquiryResult } from './dpay-payout-inquiry.types';
 import type { DpayBankListResult } from './dpay-bank-list.types';
 import type { DpayBalanceInquiryResult } from './dpay-balance-inquiry.types';
+import { BanksService } from '../../../banks/banks.service';
 
 type DpaySignMode = 'values_only' | 'key_value' | 'json';
 type DpaySignSecretPosition = 'append' | 'prepend';
@@ -36,7 +37,10 @@ export class DpayService implements IProviderService {
   private readonly signOutputCase: 'lower' | 'upper';
   private readonly signFields: string[];
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly banksService: BanksService,
+  ) {
     this.lookBaseUrl = (
       this.configService.get<string>('DPAY_LOOK_BASE_URL') ||
       'https://payment.dpayvn.com'
@@ -505,11 +509,19 @@ export class DpayService implements IProviderService {
   private async createWithdrawal(
     request: ProcessTransactionRequest,
   ): Promise<ProcessTransactionResponse> {
-    const metadata = request.metadata || {};
+    const metadata = (request.metadata || {}) as Record<string, unknown>;
     const order = this.resolveOrderValue(
       metadata.order || metadata.merchant_order || metadata.m_order,
       request.transactionId,
     );
+
+    const rawBankName = String(
+      metadata.bank_name || metadata.bank_code || '',
+    ).trim();
+    const vietnamBin = await this.banksService.resolveVietnamBinForDpayPayout(
+      metadata,
+    );
+    const bankNameForDpay = vietnamBin ?? rawBankName;
 
     const payload: Record<string, string> = {
       uid: this.resolveConfigValue(metadata.uid, this.uid),
@@ -518,10 +530,12 @@ export class DpayService implements IProviderService {
       coin: this.normalizeAmount(request.amount),
       userinfo: String(metadata.userinfo || metadata.member_id || order),
       target_bank: String(metadata.target_bank || metadata.target_bank_number || ''),
-      bank_name: String(metadata.bank_name || metadata.bank_code || ''),
+      bank_name: bankNameForDpay,
       target_bank_user: String(metadata.target_bank_user || metadata.bank_user || ''),
       extend: String(metadata.extend || ''),
-      order_date: this.formatDate(metadata.order_date),
+      order_date: this.formatDate(
+        metadata.order_date != null ? String(metadata.order_date) : undefined,
+      ),
       notifyurl: String(
         metadata.notifyurl || metadata.pay_notifyurl || this.buildCallbackUrl('dpay'),
       ),
@@ -630,12 +644,6 @@ export class DpayService implements IProviderService {
     if (this.signOutputCase === 'upper') {
       digest = digest.toUpperCase();
     }
-    console.log('digest', digest);
-    console.log('raw', raw);
-    console.log('signingSecret', signingSecret);
-    console.log('message', message);
-    console.log('keys', keys);
-    console.log('payload', payload);
 
     return digest;
   }

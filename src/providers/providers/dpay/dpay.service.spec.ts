@@ -1,5 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
+import { BanksService } from '../../../banks/banks.service';
 import { DpayService } from './dpay.service';
 
 describe('DpayService', () => {
@@ -13,7 +14,11 @@ describe('DpayService', () => {
       get: (key: string) => config[key],
     } as ConfigService;
 
-    return new DpayService(configService);
+    const banksService = {
+      resolveVietnamBinForDpayPayout: jest.fn().mockResolvedValue(null),
+    } as unknown as BanksService;
+
+    return new DpayService(configService, banksService);
   };
 
   it('generates the documented DPay signature by default', () => {
@@ -32,7 +37,7 @@ describe('DpayService', () => {
 
     const expected = crypto
       .createHash('md5')
-      .update('key1=value1&key2=value2&key4=471ba7ecb535e1070a', 'utf8')
+      .update('key1=value1&key2=value2&key4=471ba7ec&key=b535e1070a', 'utf8')
       .digest('hex')
       .toUpperCase();
 
@@ -51,7 +56,7 @@ describe('DpayService', () => {
 
     const signature = crypto
       .createHash('md5')
-      .update('coin=25&merchant_num=M100&uid=U200b535e1070a', 'utf8')
+      .update('coin=25&merchant_num=M100&uid=U200&key=b535e1070a', 'utf8')
       .digest('hex')
       .toUpperCase();
 

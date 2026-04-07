@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { BanksModule } from '../banks/banks.module';
 import { ProvidersService } from './providers.service';
 import { ProvidersController } from './providers.controller';
 import { Provider } from './entities/provider.entity';
@@ -9,7 +10,7 @@ import { SandboxService } from './providers/sandbox/sandbox.service';
 import { DpayService } from './providers/dpay/dpay.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Provider])],
+  imports: [TypeOrmModule.forFeature([Provider]), BanksModule],
   controllers: [ProvidersController],
   providers: [
     ProvidersService,
