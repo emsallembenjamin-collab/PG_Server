@@ -515,8 +515,9 @@ export class DpayService implements IProviderService {
       request.transactionId,
     );
 
+    /** Prefer `bank_code` when both are set — UI often keeps a display label in `bank_name`. */
     const rawBankName = String(
-      metadata.bank_name || metadata.bank_code || '',
+      metadata.bank_code ?? metadata.bank_name ?? '',
     ).trim();
     const vietnamBin = await this.banksService.resolveVietnamBinForDpayPayout(
       metadata,

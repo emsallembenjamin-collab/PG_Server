@@ -21,7 +21,8 @@ export class BanksService {
    * Tries, in order: `vietnam_bank_code`, `vietnam_bank_bin`, `bank_code`, `bank_name`.
    * - Exact match on `vietnam_bank_codes.code` (e.g. 970416)
    * - Case-insensitive match on `abbreviation` (e.g. VCB → 970436)
-   * Returns null if no row matches (caller should pass through raw `bank_name` / DPay channel code).
+   * - Case-insensitive match on `full_name`
+   * Returns null if no row matches (caller should pass through raw `bank_code` / `bank_name`).
    */
   async resolveVietnamBinForDpayPayout(
     metadata: Record<string, unknown>,
@@ -58,6 +59,12 @@ export class BanksService {
       .where('UPPER(TRIM(b.abbreviation)) = UPPER(TRIM(:a))', { a: trimmed })
       .getOne();
     if (byAbbrev) return byAbbrev.code;
+
+    const byFullName = await this.vietnamBankRepo
+      .createQueryBuilder('b')
+      .where('UPPER(TRIM(b.full_name)) = UPPER(TRIM(:a))', { a: trimmed })
+      .getOne();
+    if (byFullName) return byFullName.code;
 
     return null;
   }

@@ -14,6 +14,7 @@ import { WebhooksModule } from '../webhooks/webhooks.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { PaymentProcessor } from './processors/payment.processor';
 import { PublicDepositController } from './public-deposit.controller';
+import { BanksModule } from '../banks/banks.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { PublicDepositController } from './public-deposit.controller';
       name: 'payment-processing',
     }),
     MerchantsModule,
+    BanksModule,
     ProvidersModule,
     IdempotencyModule,
     NotificationsModule,

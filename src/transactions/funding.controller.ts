@@ -1,4 +1,11 @@
-import { Controller, Post, Body, Request, UseGuards } from "@nestjs/common";
+import {
+  Controller,
+  Post,
+  Get,
+  Body,
+  Request,
+  UseGuards,
+} from "@nestjs/common";
 import { ApiTags, ApiOperation, ApiSecurity } from "@nestjs/swagger";
 import { ApiKeyGuard } from "../common/guards/api-key.guard";
 import { ApiKey } from "../common/decorators/api-key.decorator";
@@ -12,6 +19,7 @@ import { PayoutInquiryDto } from "./dto/payout-inquiry.dto";
 import { BalanceInquiryDto } from "./dto/balance-inquiry.dto";
 import { BankListDto } from "./dto/bank-list.dto";
 import { MERCHANT_INTEGRATION_TAG } from "../docs/swagger-merchant.filter";
+import { BanksService } from "../banks/banks.service";
 
 /**
  * GoldPay merchant funding API. Routes use the merchant's admin-assigned provider
@@ -22,7 +30,28 @@ import { MERCHANT_INTEGRATION_TAG } from "../docs/swagger-merchant.filter";
 @UseGuards(ApiKeyGuard)
 @ApiSecurity("api-key")
 export class FundingController {
-  constructor(private readonly transactionsService: TransactionsService) {}
+  constructor(
+    private readonly transactionsService: TransactionsService,
+    private readonly banksService: BanksService,
+  ) {}
+
+  @Get("vietnam-bank-codes")
+  @ApiKey()
+  @ApiOperation({
+    summary: "Vietnam bank codes (Napas/BIN) for withdrawals",
+    description:
+      "Returns the platform `vietnam_bank_codes` list. Use these 6-digit BIN values in withdrawal metadata (`bank_code` / `bank_name` / `vietnam_bank_code`) for DPay payout — they differ from DPay `POST funding/bank-list` channel codes.",
+  })
+  async vietnamBankCodes() {
+    const rows = await this.banksService.findAllVietnamCodes();
+    return {
+      data: rows.map((r) => ({
+        code: r.code,
+        full_name: r.full_name,
+        abbreviation: r.abbreviation,
+      })),
+    };
+  }
 
   @Post("deposits")
   @ApiKey()
