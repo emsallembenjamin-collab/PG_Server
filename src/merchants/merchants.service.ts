@@ -8,16 +8,13 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, Repository } from 'typeorm';
 import * as crypto from 'crypto';
 import { Merchant, MerchantStatus } from './entities/merchant.entity';
+import { MerchantBalance } from './entities/merchant-balance.entity';
 import {
   Transaction,
   TransactionStatus,
   TransactionType,
 } from '../transactions/entities/transaction.entity';
-import {
-  merchantBalanceCurrency,
-  parseMoney,
-  roundMoney,
-} from './merchant-balance.util';
+import { parseMoney, roundMoney } from './merchant-balance.util';
 import { MerchantApiKey, ApiKeyStatus } from './entities/merchant-api-key.entity';
 import { CreateMerchantDto } from './dto/create-merchant.dto';
 import { UpdateMerchantDto } from './dto/update-merchant.dto';
@@ -50,14 +47,14 @@ export class MerchantsService {
 
   async findAll(): Promise<Merchant[]> {
     return this.merchantRepository.find({
-      relations: ['provider'],
+      relations: ['provider', 'balances'],
     });
   }
 
   async findOne(id: number): Promise<Merchant> {
     const merchant = await this.merchantRepository.findOne({
       where: { id },
-      relations: ['provider'],
+      relations: ['provider', 'balances'],
     });
     if (!merchant) {
       throw new NotFoundException(`Merchant with ID ${id} not found`);
@@ -86,10 +83,6 @@ export class MerchantsService {
 
     if (updateMerchantDto.whitelisted_ips !== undefined) {
       merchant.whitelisted_ips = normalizeIpList(updateMerchantDto.whitelisted_ips);
-    }
-
-    if (typeof updateMerchantDto.balance_currency === 'string') {
-      merchant.balance_currency = updateMerchantDto.balance_currency.trim().toUpperCase();
     }
 
     return this.merchantRepository.save(merchant);
@@ -126,7 +119,7 @@ export class MerchantsService {
 
     const apiKeyRecord = await this.apiKeyRepository.findOne({
       where: { key_hash: hashedKey, status: ApiKeyStatus.ACTIVE },
-      relations: ['merchant'],
+      relations: ['merchant', 'merchant.balances'],
     });
 
     if (!apiKeyRecord || apiKeyRecord.merchant.status !== MerchantStatus.ACTIVE) {
@@ -255,16 +248,26 @@ export class MerchantsService {
     return merchant.provider;
   }
 
+  private isUniqueConstraintError(err: unknown): boolean {
+    const e = err as { code?: string; errno?: number };
+    return (
+      e?.code === 'ER_DUP_ENTRY' ||
+      e?.errno === 1062 ||
+      e?.code === '23505'
+    );
+  }
+
   /**
-   * Reserve funds for a new withdrawal (pending/processing). Caller must run inside a DB transaction.
+   * Returns the balance row for (merchant, currency) with a pessimistic lock, creating a zero row if needed.
+   * Caller must run inside a DB transaction.
    */
-  async lockFundsForWithdrawal(
+  async lockMerchantBalanceRow(
     manager: EntityManager,
     merchantId: number,
-    amount: number,
     currency: string,
-  ): Promise<void> {
+  ): Promise<MerchantBalance> {
     const cur = (currency || 'USD').trim().toUpperCase();
+
     const merchant = await manager
       .createQueryBuilder(Merchant, 'm')
       .setLock('pessimistic_write')
@@ -275,27 +278,82 @@ export class MerchantsService {
       throw new NotFoundException(`Merchant with ID ${merchantId} not found`);
     }
 
-    const ledgerCurrency = merchantBalanceCurrency(merchant);
-    if (cur !== ledgerCurrency) {
-      throw new BadRequestException(
-        `Withdrawals must use merchant balance currency ${ledgerCurrency} (got ${cur})`,
-      );
+    for (let attempt = 0; attempt < 4; attempt++) {
+      let row = await manager
+        .createQueryBuilder(MerchantBalance, 'b')
+        .setLock('pessimistic_write')
+        .where('b.merchant_id = :mid AND b.currency = :cur', {
+          mid: merchantId,
+          cur,
+        })
+        .getOne();
+
+      if (row) {
+        return row;
+      }
+
+      try {
+        const created = manager.create(MerchantBalance, {
+          merchant_id: merchantId,
+          currency: cur,
+          balance_available: '0',
+          balance_locked: '0',
+        });
+        await manager.save(created);
+      } catch (err) {
+        if (!this.isUniqueConstraintError(err)) {
+          throw err;
+        }
+      }
     }
 
+    const row = await manager
+      .createQueryBuilder(MerchantBalance, 'b')
+      .setLock('pessimistic_write')
+      .where('b.merchant_id = :mid AND b.currency = :cur', {
+        mid: merchantId,
+        cur,
+      })
+      .getOne();
+
+    if (!row) {
+      throw new InternalServerErrorException(
+        'Failed to acquire merchant balance row',
+      );
+    }
+    return row;
+  }
+
+  /**
+   * Reserve funds for a new withdrawal (pending/processing). Caller must run inside a DB transaction.
+   */
+  async lockFundsForWithdrawal(
+    manager: EntityManager,
+    merchantId: number,
+    amount: number,
+    currency: string,
+  ): Promise<void> {
+    const cur = (currency || 'USD').trim().toUpperCase();
     const amt = roundMoney(amount);
     if (amt <= 0) {
       throw new BadRequestException('Withdrawal amount must be positive');
     }
 
-    const available = parseMoney(merchant.balance_available);
+    const balanceRow = await this.lockMerchantBalanceRow(
+      manager,
+      merchantId,
+      cur,
+    );
+
+    const available = parseMoney(balanceRow.balance_available);
     if (available + 1e-9 < amt) {
       throw new BadRequestException('Insufficient available balance');
     }
 
-    const locked = parseMoney(merchant.balance_locked);
-    merchant.balance_available = String(roundMoney(available - amt));
-    merchant.balance_locked = String(roundMoney(locked + amt));
-    await manager.save(merchant);
+    const locked = parseMoney(balanceRow.balance_locked);
+    balanceRow.balance_available = String(roundMoney(available - amt));
+    balanceRow.balance_locked = String(roundMoney(locked + amt));
+    await manager.save(balanceRow);
   }
 
   /**
@@ -311,21 +369,7 @@ export class MerchantsService {
       return;
     }
 
-    const merchant = await manager
-      .createQueryBuilder(Merchant, 'm')
-      .setLock('pessimistic_write')
-      .where('m.id = :id', { id: tx.merchant_id })
-      .getOne();
-
-    if (!merchant) {
-      throw new NotFoundException(`Merchant with ID ${tx.merchant_id} not found`);
-    }
-
     const cur = (tx.currency || 'USD').trim().toUpperCase();
-    if (cur !== merchantBalanceCurrency(merchant)) {
-      return;
-    }
-
     const amount = roundMoney(Number(tx.amount));
 
     if (tx.type === TransactionType.DEPOSIT) {
@@ -333,21 +377,31 @@ export class MerchantsService {
         newStatus === TransactionStatus.SUCCEEDED &&
         previousStatus !== TransactionStatus.SUCCEEDED
       ) {
-        const available = parseMoney(merchant.balance_available);
-        merchant.balance_available = String(roundMoney(available + amount));
-        await manager.save(merchant);
+        const balanceRow = await this.lockMerchantBalanceRow(
+          manager,
+          tx.merchant_id,
+          cur,
+        );
+        const available = parseMoney(balanceRow.balance_available);
+        balanceRow.balance_available = String(roundMoney(available + amount));
+        await manager.save(balanceRow);
       } else if (
         newStatus === TransactionStatus.REVERSED &&
         previousStatus === TransactionStatus.SUCCEEDED
       ) {
-        const available = parseMoney(merchant.balance_available);
+        const balanceRow = await this.lockMerchantBalanceRow(
+          manager,
+          tx.merchant_id,
+          cur,
+        );
+        const available = parseMoney(balanceRow.balance_available);
         if (available + 1e-9 < amount) {
           throw new InternalServerErrorException(
             'Ledger inconsistency: cannot reverse deposit — insufficient available balance',
           );
         }
-        merchant.balance_available = String(roundMoney(available - amount));
-        await manager.save(merchant);
+        balanceRow.balance_available = String(roundMoney(available - amount));
+        await manager.save(balanceRow);
       }
       return;
     }
@@ -362,29 +416,39 @@ export class MerchantsService {
           newStatus === TransactionStatus.REVERSED) &&
         wasInFlight
       ) {
-        const locked = parseMoney(merchant.balance_locked);
+        const balanceRow = await this.lockMerchantBalanceRow(
+          manager,
+          tx.merchant_id,
+          cur,
+        );
+        const locked = parseMoney(balanceRow.balance_locked);
         if (locked + 1e-9 < amount) {
           throw new InternalServerErrorException(
             'Ledger inconsistency: cannot unlock withdrawal — insufficient locked balance',
           );
         }
-        const available = parseMoney(merchant.balance_available);
-        merchant.balance_locked = String(roundMoney(locked - amount));
-        merchant.balance_available = String(roundMoney(available + amount));
-        await manager.save(merchant);
+        const available = parseMoney(balanceRow.balance_available);
+        balanceRow.balance_locked = String(roundMoney(locked - amount));
+        balanceRow.balance_available = String(roundMoney(available + amount));
+        await manager.save(balanceRow);
       } else if (
         newStatus === TransactionStatus.SUCCEEDED &&
         (previousStatus === TransactionStatus.PENDING ||
           previousStatus === TransactionStatus.PROCESSING)
       ) {
-        const locked = parseMoney(merchant.balance_locked);
+        const balanceRow = await this.lockMerchantBalanceRow(
+          manager,
+          tx.merchant_id,
+          cur,
+        );
+        const locked = parseMoney(balanceRow.balance_locked);
         if (locked + 1e-9 < amount) {
           throw new InternalServerErrorException(
             'Ledger inconsistency: cannot settle withdrawal — insufficient locked balance',
           );
         }
-        merchant.balance_locked = String(roundMoney(locked - amount));
-        await manager.save(merchant);
+        balanceRow.balance_locked = String(roundMoney(locked - amount));
+        await manager.save(balanceRow);
       }
       return;
     }

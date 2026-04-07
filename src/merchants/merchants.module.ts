@@ -5,6 +5,7 @@ import { MerchantsController } from './merchants.controller';
 import { MerchantProfileController } from './merchant-profile.controller';
 import { MerchantConfigService } from './merchant-config.service';
 import { Merchant } from './entities/merchant.entity';
+import { MerchantBalance } from './entities/merchant-balance.entity';
 import { MerchantApiKey } from './entities/merchant-api-key.entity';
 import { MerchantConfig } from './entities/merchant-config.entity';
 import { DefaultMerchantConfigPlugin } from './plugins/default-merchant-config.plugin';
@@ -12,7 +13,7 @@ import { ProvidersModule } from '../providers/providers.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Merchant, MerchantApiKey, MerchantConfig]),
+    TypeOrmModule.forFeature([Merchant, MerchantBalance, MerchantApiKey, MerchantConfig]),
     ProvidersModule,
   ],
   controllers: [MerchantProfileController, MerchantsController],

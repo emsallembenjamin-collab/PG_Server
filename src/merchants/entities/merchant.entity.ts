@@ -11,6 +11,7 @@ import {
 import { Transaction } from '../../transactions/entities/transaction.entity';
 import { MerchantApiKey } from './merchant-api-key.entity';
 import { MerchantConfig } from './merchant-config.entity';
+import { MerchantBalance } from './merchant-balance.entity';
 import { Provider } from '../../providers/entities/provider.entity';
 
 export enum MerchantStatus {
@@ -58,18 +59,6 @@ export class Merchant {
   @Column({ type: 'text', nullable: true })
   bio: string | null;
 
-  /** Ledger currency (ISO 4217). Withdrawals must match; deposits credit only when currency matches. */
-  @Column({ type: 'varchar', length: 3, default: 'USD' })
-  balance_currency: string;
-
-  /** Spendable balance (deposits succeed here; withdrawals reserve from here into locked). */
-  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0 })
-  balance_available: string;
-
-  /** Amount reserved for in-flight withdrawals until settled or released. */
-  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0 })
-  balance_locked: string;
-
   @CreateDateColumn()
   created_at: Date;
 
@@ -84,6 +73,9 @@ export class Merchant {
 
   @OneToMany(() => MerchantConfig, (config) => config.merchant)
   configs: MerchantConfig[];
+
+  @OneToMany(() => MerchantBalance, (b) => b.merchant)
+  balances: MerchantBalance[];
 
   @ManyToOne(() => Provider, { nullable: true })
   @JoinColumn({ name: 'provider_id' })

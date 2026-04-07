@@ -1,4 +1,5 @@
 import { Merchant } from './entities/merchant.entity';
+import { MerchantBalance } from './entities/merchant-balance.entity';
 
 export function parseMoney(value: string | number | null | undefined): number {
   if (value === null || value === undefined) return 0;
@@ -10,17 +11,41 @@ export function roundMoney(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-export function merchantBalanceCurrency(merchant: Merchant): string {
-  return (merchant.balance_currency || 'USD').trim().toUpperCase();
+export type MerchantBalanceView = {
+  currency: string;
+  balance_available: number;
+  balance_locked: number;
+  balance_total: number;
+};
+
+function normalizeBalanceRows(balances: MerchantBalance[] | undefined): MerchantBalanceView[] {
+  const rows = balances ?? [];
+  return rows
+    .map((b) => {
+      const currency = (b.currency || 'USD').trim().toUpperCase();
+      const available = roundMoney(parseMoney(b.balance_available));
+      const locked = roundMoney(parseMoney(b.balance_locked));
+      return {
+        currency,
+        balance_available: available,
+        balance_locked: locked,
+        balance_total: roundMoney(available + locked),
+      };
+    })
+    .sort((a, b) => a.currency.localeCompare(b.currency));
 }
 
-export function serializeMerchantBalances(merchant: Merchant) {
-  const available = roundMoney(parseMoney(merchant.balance_available));
-  const locked = roundMoney(parseMoney(merchant.balance_locked));
+/** Flat fields mirror the primary row (USD if present, else first by currency code) for backward compatibility. */
+export function serializeMerchantBalances(
+  merchant: Merchant & { balances?: MerchantBalance[] },
+) {
+  const balances = normalizeBalanceRows(merchant.balances);
+  const primary = balances.find((x) => x.currency === 'USD') ?? balances[0];
   return {
-    balance_currency: merchantBalanceCurrency(merchant),
-    balance_available: available,
-    balance_locked: locked,
-    balance_total: roundMoney(available + locked),
+    balances,
+    balance_currency: primary?.currency ?? 'USD',
+    balance_available: primary?.balance_available ?? 0,
+    balance_locked: primary?.balance_locked ?? 0,
+    balance_total: primary?.balance_total ?? 0,
   };
 }

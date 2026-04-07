@@ -14,6 +14,7 @@ import {
 } from '../merchants/entities/merchant-api-key.entity';
 import { MerchantConfig } from '../merchants/entities/merchant-config.entity';
 import { Merchant, MerchantStatus } from '../merchants/entities/merchant.entity';
+import { MerchantBalance } from '../merchants/entities/merchant-balance.entity';
 import {
   Notification,
   NotificationCategory,
@@ -318,6 +319,7 @@ async function seed() {
       CurrencyRate,
       IdempotencyKey,
       Merchant,
+      MerchantBalance,
       MerchantApiKey,
       MerchantConfig,
       Notification,

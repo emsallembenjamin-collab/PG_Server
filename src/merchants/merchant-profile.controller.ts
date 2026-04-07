@@ -44,10 +44,8 @@ export class MerchantProfileController {
       "Updates name, email, phone, username, and bio for the authenticated merchant.",
   })
   async patchMe(@Request() req, @Body() body: UpdateMerchantProfileDto) {
-    const merchant = await this.merchantsService.updateProfile(
-      req.merchant.id,
-      body,
-    );
+    await this.merchantsService.updateProfile(req.merchant.id, body);
+    const merchant = await this.merchantsService.findOne(req.merchant.id);
     return {
       ...merchant,
       ...serializeMerchantBalances(merchant),

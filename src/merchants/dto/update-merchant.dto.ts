@@ -7,7 +7,6 @@ import {
   IsOptional,
   IsString,
   IsUrl,
-  Length,
 } from 'class-validator';
 import { MerchantStatus } from '../entities/merchant.entity';
 
@@ -42,15 +41,4 @@ export class UpdateMerchantDto {
   @IsArray()
   @IsIP(undefined, { each: true })
   whitelisted_ips?: string[] | null;
-
-  @ApiProperty({
-    required: false,
-    description:
-      'ISO 4217 code for the internal ledger (withdrawals must match; deposits credit when currency matches).',
-    example: 'USD',
-  })
-  @IsOptional()
-  @IsString()
-  @Length(3, 3)
-  balance_currency?: string;
 }
