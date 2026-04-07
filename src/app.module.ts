@@ -16,6 +16,7 @@ import { CurrenciesModule } from './currencies/currencies.module';
 import { ReconciliationModule } from './reconciliation/reconciliation.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { MerchantUiModule } from './merchant-ui/merchant-ui.module';
+import { BanksModule } from './banks/banks.module';
 
 // Common
 import { CommonModule } from './common/common.module';
@@ -104,6 +105,7 @@ import { ensureMerchantBalanceIndexesBeforeSync } from './database/ensure-mercha
     ReconciliationModule,
     NotificationsModule,
     MerchantUiModule,
+    BanksModule,
   ],
 })
 export class AppModule {}
