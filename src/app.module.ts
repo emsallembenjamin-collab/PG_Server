@@ -19,6 +19,7 @@ import { MerchantUiModule } from './merchant-ui/merchant-ui.module';
 
 // Common
 import { CommonModule } from './common/common.module';
+import { ensureMerchantBalanceIndexesBeforeSync } from './database/ensure-merchant-balance-indexes';
 
 @Module({
   imports: [
@@ -31,17 +32,33 @@ import { CommonModule } from './common/common.module';
     // Database
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
-      useFactory: (configService: ConfigService) => ({
-        type: 'mysql',
-        host: configService.get<string>('DB_HOST', 'localhost'),
-        port: configService.get<number>('DB_PORT', 3306),
-        username: configService.get<string>('DB_USERNAME'),
-        password: configService.get<string>('DB_PASSWORD'),
-        database: configService.get<string>('DB_DATABASE'),
-        autoLoadEntities: true,
-        synchronize: configService.get<string>('NODE_ENV') === 'development',
-        logging: configService.get<string>('NODE_ENV') === 'development',
-      }),
+      useFactory: async (configService: ConfigService) => {
+        const host = configService.get<string>('DB_HOST', 'localhost');
+        const port = configService.get<number>('DB_PORT', 3306);
+        const username = configService.get<string>('DB_USERNAME');
+        const password = configService.get<string>('DB_PASSWORD');
+        const database = configService.get<string>('DB_DATABASE');
+
+        await ensureMerchantBalanceIndexesBeforeSync({
+          host,
+          port,
+          username: username ?? '',
+          password: password ?? '',
+          database: database ?? '',
+        });
+
+        return {
+          type: 'mysql' as const,
+          host,
+          port,
+          username,
+          password,
+          database,
+          autoLoadEntities: true,
+          synchronize: configService.get<string>('NODE_ENV') === 'development',
+          logging: configService.get<string>('NODE_ENV') === 'development',
+        };
+      },
       inject: [ConfigService],
     }),
 
