@@ -46,6 +46,7 @@ import type { DpayBalanceInquiryError } from "../providers/providers/dpay/dpay-b
 import { BankListDto } from "./dto/bank-list.dto";
 import { MerchantBankListResponse } from "./dto/merchant-bank-list.response";
 import type { DpayBankListError } from "../providers/providers/dpay/dpay-bank-list.types";
+import { SystemFeeService } from "../system-fee/system-fee.service";
 
 @Injectable()
 export class TransactionsService {
@@ -65,6 +66,7 @@ export class TransactionsService {
     private paymentQueue: Queue,
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    private readonly systemFeeService: SystemFeeService,
   ) {}
 
   private formatAmount(amount: number, currency: string) {
@@ -205,6 +207,11 @@ export class TransactionsService {
         : undefined,
       type: transaction.type,
       amount: Number(transaction.amount),
+      system_fee_percentage: Number(transaction.system_fee_percentage ?? 0),
+      system_fee_amount: Number(transaction.system_fee_amount ?? 0),
+      merchant_settlement_amount: Number(
+        transaction.merchant_settlement_amount ?? transaction.amount,
+      ),
       currency: transaction.currency,
       reference_id: transaction.reference_id ?? undefined,
       external_id: transaction.external_id ?? undefined,
@@ -386,10 +393,10 @@ export class TransactionsService {
     }
 
     const transaction = this.transactionRepository.create({
+      amount: Number(createTransactionDto.amount),
       merchant_id: merchantId,
       provider_id: provider.id,
       type: createTransactionDto.type,
-      amount: createTransactionDto.amount,
       currency: createTransactionDto.currency || "USD",
       reference_id: createTransactionDto.reference_id,
       status: TransactionStatus.PENDING,
@@ -408,13 +415,21 @@ export class TransactionsService {
       })(),
     });
 
+    const feeBreakdown = await this.systemFeeService.calculateFee(
+      createTransactionDto.type,
+      Number(createTransactionDto.amount),
+    );
+    transaction.system_fee_percentage = feeBreakdown.percentage;
+    transaction.system_fee_amount = feeBreakdown.feeAmount;
+    transaction.merchant_settlement_amount = feeBreakdown.settlementAmount;
+
     const savedTransaction = await this.dataSource.transaction(async (manager) => {
       const saved = await manager.save(transaction);
       if (saved.type === TransactionType.WITHDRAWAL) {
         await this.merchantsService.lockFundsForWithdrawal(
           manager,
           merchantId,
-          Number(saved.amount),
+          Number(saved.merchant_settlement_amount ?? saved.amount),
           saved.currency,
         );
       }

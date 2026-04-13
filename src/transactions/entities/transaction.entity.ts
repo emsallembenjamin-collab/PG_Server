@@ -42,6 +42,20 @@ export class Transaction {
   @Column({ type: 'decimal', precision: 15, scale: 2 })
   amount: number;
 
+  @Column({ type: 'decimal', precision: 5, scale: 2, default: 0 })
+  system_fee_percentage: number;
+
+  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0 })
+  system_fee_amount: number;
+
+  /**
+   * Amount used for merchant ledger settlement after applying platform fee.
+   * - Deposit: amount - fee
+   * - Withdrawal: amount + fee
+   */
+  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true })
+  merchant_settlement_amount: number | null;
+
   @Column({ type: 'varchar', length: 3, default: 'USD' })
   currency: string;
 

@@ -390,7 +390,9 @@ export class MerchantsService {
     }
 
     const cur = (tx.currency || 'USD').trim().toUpperCase();
-    const amount = roundMoney(Number(tx.amount));
+    const amount = roundMoney(
+      Number(tx.merchant_settlement_amount ?? tx.amount),
+    );
 
     if (tx.type === TransactionType.DEPOSIT) {
       if (

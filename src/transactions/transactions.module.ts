@@ -15,6 +15,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { PaymentProcessor } from './processors/payment.processor';
 import { PublicDepositController } from './public-deposit.controller';
 import { BanksModule } from '../banks/banks.module';
+import { SystemFeeModule } from '../system-fee/system-fee.module';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { BanksModule } from '../banks/banks.module';
     ProvidersModule,
     IdempotencyModule,
     NotificationsModule,
+    SystemFeeModule,
     forwardRef(() => WebhooksModule),
   ],
   controllers: [

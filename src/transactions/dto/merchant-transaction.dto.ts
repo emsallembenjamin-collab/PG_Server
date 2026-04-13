@@ -15,6 +15,9 @@ export interface MerchantTransactionResponse {
   payment_link_expires_at?: string;
   type: string;
   amount: number;
+  system_fee_percentage?: number;
+  system_fee_amount?: number;
+  merchant_settlement_amount?: number;
   currency: string;
   reference_id?: string;
   external_id?: string;
