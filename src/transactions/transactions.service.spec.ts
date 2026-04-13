@@ -26,6 +26,13 @@ describe("TransactionsService sandbox guards", () => {
           fn({}),
         ),
       } as any,
+      {
+        calculateFee: jest.fn().mockResolvedValue({
+          percentage: 1,
+          feeAmount: 1,
+          settlementAmount: 99,
+        }),
+      } as any,
     );
   }
 
