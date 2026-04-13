@@ -94,4 +94,10 @@ export class ReconciliationController {
       body.resolvedBy,
     );
   }
+
+  @Post('discrepancies/:id/replay-callback')
+  @ApiOperation({ summary: 'Replay merchant callback for discrepancy transaction' })
+  async replayCallbackForDiscrepancy(@Param('id') id: string) {
+    return this.reconciliationService.replayMerchantCallbackForDiscrepancy(+id);
+  }
 }

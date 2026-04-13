@@ -67,6 +67,14 @@ export class WebhooksService {
       url: merchant.webhook_url,
       payload,
       secret: merchant.webhook_secret,
+    }, {
+      attempts: 5,
+      backoff: {
+        type: 'exponential',
+        delay: 1000,
+      },
+      removeOnComplete: true,
+      removeOnFail: false,
     });
   }
 

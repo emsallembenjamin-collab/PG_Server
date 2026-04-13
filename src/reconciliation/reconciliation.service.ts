@@ -4,8 +4,10 @@ import { Repository, Between, In } from 'typeorm';
 import { Reconciliation, ReconciliationType, ReconciliationStatus } from './entities/reconciliation.entity';
 import { ReconciliationDiscrepancy, DiscrepancyType, DiscrepancyStatus } from './entities/reconciliation-discrepancy.entity';
 import { Transaction, TransactionStatus } from '../transactions/entities/transaction.entity';
+import { WebhookDelivery, WebhookDeliveryStatus } from '../webhooks/entities/webhook-delivery.entity';
 import { ProvidersService } from '../providers/providers.service';
 import { MerchantsService } from '../merchants/merchants.service';
+import { WebhooksService } from '../webhooks/webhooks.service';
 
 @Injectable()
 export class ReconciliationService {
@@ -16,8 +18,11 @@ export class ReconciliationService {
     private discrepancyRepository: Repository<ReconciliationDiscrepancy>,
     @InjectRepository(Transaction)
     private transactionRepository: Repository<Transaction>,
+    @InjectRepository(WebhookDelivery)
+    private webhookDeliveryRepository: Repository<WebhookDelivery>,
     private providersService: ProvidersService,
     private merchantsService: MerchantsService,
+    private webhooksService: WebhooksService,
   ) {}
 
   /**
@@ -232,6 +237,7 @@ export class ReconciliationService {
     transactions: Transaction[],
   ): Promise<ReconciliationDiscrepancy[]> {
     const discrepancies: ReconciliationDiscrepancy[] = [];
+    const latestDeliveryByTxId = await this.getLatestWebhookDeliveryMap(transactions);
 
     for (const tx of transactions) {
       // Check for missing external_id on succeeded transactions
@@ -247,6 +253,74 @@ export class ReconciliationService {
             description: `Transaction ${tx.id} succeeded but missing external_id`,
             expected_value: JSON.stringify({ external_id: 'required' }),
             actual_value: JSON.stringify({ external_id: null }),
+          }),
+        );
+      }
+
+      // Check callback delivery mismatch for terminal transactions.
+      // Example: provider says success but merchant webhook is failed/pending.
+      if (
+        tx.status === TransactionStatus.SUCCEEDED ||
+        tx.status === TransactionStatus.FAILED ||
+        tx.status === TransactionStatus.REVERSED
+      ) {
+        const latest = latestDeliveryByTxId.get(tx.id);
+        if (!latest) {
+          discrepancies.push(
+            this.discrepancyRepository.create({
+              reconciliation_id: reconciliationId,
+              transaction_id: tx.id,
+              type: DiscrepancyType.STATUS_MISMATCH,
+              description: `Transaction ${tx.id} is ${tx.status} but merchant callback has not been delivered`,
+              expected_value: JSON.stringify({ webhook_delivery: 'success' }),
+              actual_value: JSON.stringify({ webhook_delivery: 'missing' }),
+            }),
+          );
+        } else if (latest.status !== WebhookDeliveryStatus.SUCCESS) {
+          discrepancies.push(
+            this.discrepancyRepository.create({
+              reconciliation_id: reconciliationId,
+              transaction_id: tx.id,
+              type: DiscrepancyType.STATUS_MISMATCH,
+              description: `Transaction ${tx.id} is ${tx.status} but latest merchant callback is ${latest.status}`,
+              expected_value: JSON.stringify({
+                webhook_delivery: 'success',
+                transaction_status: tx.status,
+              }),
+              actual_value: JSON.stringify({
+                webhook_delivery: latest.status,
+                attempts: latest.attempt_count,
+                last_error: latest.last_error || null,
+              }),
+            }),
+          );
+        }
+      }
+
+      const amount = Number(tx.amount || 0);
+      const feePct = Number(tx.system_fee_percentage || 0);
+      const feeAmount = Number(tx.system_fee_amount || 0);
+      const settlement = Number(tx.merchant_settlement_amount ?? tx.amount);
+      const expectedFee = Math.round((amount * feePct)) / 100;
+      const expectedSettlement =
+        tx.type === 'deposit' ? amount - expectedFee : amount + expectedFee;
+      const close = (a: number, b: number) => Math.abs(a - b) < 0.01;
+      if (!close(feeAmount, expectedFee) || !close(settlement, expectedSettlement)) {
+        discrepancies.push(
+          this.discrepancyRepository.create({
+            reconciliation_id: reconciliationId,
+            transaction_id: tx.id,
+            type: DiscrepancyType.FEE_MISMATCH,
+            description: `Transaction ${tx.id} has fee/settlement mismatch`,
+            expected_value: JSON.stringify({
+              system_fee_amount: expectedFee.toFixed(2),
+              merchant_settlement_amount: expectedSettlement.toFixed(2),
+            }),
+            actual_value: JSON.stringify({
+              system_fee_percentage: feePct,
+              system_fee_amount: feeAmount,
+              merchant_settlement_amount: settlement,
+            }),
           }),
         );
       }
@@ -304,6 +378,26 @@ export class ReconciliationService {
     }
 
     return discrepancies;
+  }
+
+  private async getLatestWebhookDeliveryMap(
+    transactions: Transaction[],
+  ): Promise<Map<number, WebhookDelivery>> {
+    const txIds = transactions.map((tx) => tx.id);
+    if (txIds.length === 0) {
+      return new Map();
+    }
+    const deliveries = await this.webhookDeliveryRepository.find({
+      where: { transaction_id: In(txIds) },
+      order: { updated_at: 'DESC', id: 'DESC' },
+    });
+    const map = new Map<number, WebhookDelivery>();
+    for (const delivery of deliveries) {
+      if (!map.has(delivery.transaction_id)) {
+        map.set(delivery.transaction_id, delivery);
+      }
+    }
+    return map;
   }
 
   /**
@@ -378,5 +472,27 @@ export class ReconciliationService {
     discrepancy.resolved_at = new Date();
 
     return this.discrepancyRepository.save(discrepancy);
+  }
+
+  async replayMerchantCallbackForDiscrepancy(
+    discrepancyId: number,
+  ): Promise<{ message: string; deliveryTriggered: boolean }> {
+    const discrepancy = await this.discrepancyRepository.findOne({
+      where: { id: discrepancyId },
+    });
+    if (!discrepancy) {
+      throw new Error('Discrepancy not found');
+    }
+    if (!discrepancy.transaction_id) {
+      return {
+        message: 'Discrepancy has no transaction reference',
+        deliveryTriggered: false,
+      };
+    }
+    await this.webhooksService.deliverMerchantWebhook(discrepancy.transaction_id);
+    return {
+      message: `Merchant callback replay queued for transaction ${discrepancy.transaction_id}`,
+      deliveryTriggered: true,
+    };
   }
 }
