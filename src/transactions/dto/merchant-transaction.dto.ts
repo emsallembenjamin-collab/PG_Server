@@ -17,6 +17,9 @@ export interface MerchantTransactionResponse {
   amount: number;
   system_fee_percentage?: number;
   system_fee_amount?: number;
+  third_party_fee_percentage?: number;
+  third_party_fee_amount?: number;
+  total_fee_amount?: number;
   merchant_settlement_amount?: number;
   currency: string;
   reference_id?: string;

@@ -17,6 +17,12 @@ export class SystemFeeSetting {
   @Column({ type: "decimal", precision: 5, scale: 2, default: 1 })
   withdrawal_fee_percentage: number;
 
+  @Column({ type: "decimal", precision: 5, scale: 2, default: 0 })
+  third_party_deposit_fee_percentage: number;
+
+  @Column({ type: "decimal", precision: 5, scale: 2, default: 0 })
+  third_party_withdrawal_fee_percentage: number;
+
   @CreateDateColumn()
   created_at: Date;
 

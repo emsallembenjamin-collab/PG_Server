@@ -15,4 +15,18 @@ export class UpdateSystemFeeDto {
   @Min(0)
   @Max(100)
   withdrawal_fee_percentage?: number;
+
+  @ApiPropertyOptional({ minimum: 0, maximum: 100, example: 0.5 })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  third_party_deposit_fee_percentage?: number;
+
+  @ApiPropertyOptional({ minimum: 0, maximum: 100, example: 0.5 })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  third_party_withdrawal_fee_percentage?: number;
 }

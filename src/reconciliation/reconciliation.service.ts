@@ -300,12 +300,24 @@ export class ReconciliationService {
       const amount = Number(tx.amount || 0);
       const feePct = Number(tx.system_fee_percentage || 0);
       const feeAmount = Number(tx.system_fee_amount || 0);
+      const thirdPartyFeePct = Number(tx.third_party_fee_percentage || 0);
+      const thirdPartyFeeAmount = Number(tx.third_party_fee_amount || 0);
+      const totalFeeAmount = Number(
+        tx.total_fee_amount ?? feeAmount + thirdPartyFeeAmount,
+      );
       const settlement = Number(tx.merchant_settlement_amount ?? tx.amount);
       const expectedFee = Math.round((amount * feePct)) / 100;
+      const expectedThirdPartyFee = Math.round((amount * thirdPartyFeePct)) / 100;
+      const expectedTotalFee = expectedFee + expectedThirdPartyFee;
       const expectedSettlement =
-        tx.type === 'deposit' ? amount - expectedFee : amount + expectedFee;
+        tx.type === 'deposit' ? amount - expectedTotalFee : amount + expectedTotalFee;
       const close = (a: number, b: number) => Math.abs(a - b) < 0.01;
-      if (!close(feeAmount, expectedFee) || !close(settlement, expectedSettlement)) {
+      if (
+        !close(feeAmount, expectedFee) ||
+        !close(thirdPartyFeeAmount, expectedThirdPartyFee) ||
+        !close(totalFeeAmount, expectedTotalFee) ||
+        !close(settlement, expectedSettlement)
+      ) {
         discrepancies.push(
           this.discrepancyRepository.create({
             reconciliation_id: reconciliationId,
@@ -314,11 +326,16 @@ export class ReconciliationService {
             description: `Transaction ${tx.id} has fee/settlement mismatch`,
             expected_value: JSON.stringify({
               system_fee_amount: expectedFee.toFixed(2),
+              third_party_fee_amount: expectedThirdPartyFee.toFixed(2),
+              total_fee_amount: expectedTotalFee.toFixed(2),
               merchant_settlement_amount: expectedSettlement.toFixed(2),
             }),
             actual_value: JSON.stringify({
               system_fee_percentage: feePct,
               system_fee_amount: feeAmount,
+              third_party_fee_percentage: thirdPartyFeePct,
+              third_party_fee_amount: thirdPartyFeeAmount,
+              total_fee_amount: totalFeeAmount,
               merchant_settlement_amount: settlement,
             }),
           }),

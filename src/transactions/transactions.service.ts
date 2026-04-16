@@ -209,6 +209,11 @@ export class TransactionsService {
       amount: Number(transaction.amount),
       system_fee_percentage: Number(transaction.system_fee_percentage ?? 0),
       system_fee_amount: Number(transaction.system_fee_amount ?? 0),
+      third_party_fee_percentage: Number(
+        transaction.third_party_fee_percentage ?? 0,
+      ),
+      third_party_fee_amount: Number(transaction.third_party_fee_amount ?? 0),
+      total_fee_amount: Number(transaction.total_fee_amount ?? 0),
       merchant_settlement_amount: Number(
         transaction.merchant_settlement_amount ?? transaction.amount,
       ),
@@ -419,8 +424,11 @@ export class TransactionsService {
       createTransactionDto.type,
       Number(createTransactionDto.amount),
     );
-    transaction.system_fee_percentage = feeBreakdown.percentage;
-    transaction.system_fee_amount = feeBreakdown.feeAmount;
+    transaction.system_fee_percentage = feeBreakdown.serviceFeePercentage;
+    transaction.system_fee_amount = feeBreakdown.serviceFeeAmount;
+    transaction.third_party_fee_percentage = feeBreakdown.thirdPartyFeePercentage;
+    transaction.third_party_fee_amount = feeBreakdown.thirdPartyFeeAmount;
+    transaction.total_fee_amount = feeBreakdown.totalFeeAmount;
     transaction.merchant_settlement_amount = feeBreakdown.settlementAmount;
 
     const savedTransaction = await this.dataSource.transaction(async (manager) => {

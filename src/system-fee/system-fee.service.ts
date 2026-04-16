@@ -24,6 +24,8 @@ export class SystemFeeService {
       id: 1,
       deposit_fee_percentage: 1,
       withdrawal_fee_percentage: 1,
+      third_party_deposit_fee_percentage: 0,
+      third_party_withdrawal_fee_percentage: 0,
     });
     return this.systemFeeRepository.save(created);
   }
@@ -40,6 +42,14 @@ export class SystemFeeService {
     if (dto.withdrawal_fee_percentage !== undefined) {
       settings.withdrawal_fee_percentage = dto.withdrawal_fee_percentage;
     }
+    if (dto.third_party_deposit_fee_percentage !== undefined) {
+      settings.third_party_deposit_fee_percentage =
+        dto.third_party_deposit_fee_percentage;
+    }
+    if (dto.third_party_withdrawal_fee_percentage !== undefined) {
+      settings.third_party_withdrawal_fee_percentage =
+        dto.third_party_withdrawal_fee_percentage;
+    }
     return this.systemFeeRepository.save(settings);
   }
 
@@ -47,23 +57,44 @@ export class SystemFeeService {
     type: TransactionType,
     amount: number,
   ): Promise<{
-    percentage: number;
-    feeAmount: number;
+    serviceFeePercentage: number;
+    serviceFeeAmount: number;
+    thirdPartyFeePercentage: number;
+    thirdPartyFeeAmount: number;
+    totalFeePercentage: number;
+    totalFeeAmount: number;
     settlementAmount: number;
   }> {
     const settings = await this.ensureSettingsRow();
-    const percentage =
+    const serviceFeePercentage =
       type === TransactionType.DEPOSIT
         ? Number(settings.deposit_fee_percentage || 0)
         : Number(settings.withdrawal_fee_percentage || 0);
-    const feeAmount = roundMoney((Number(amount) * percentage) / 100);
+    const thirdPartyFeePercentage =
+      type === TransactionType.DEPOSIT
+        ? Number(settings.third_party_deposit_fee_percentage || 0)
+        : Number(settings.third_party_withdrawal_fee_percentage || 0);
+    const serviceFeeAmount = roundMoney(
+      (Number(amount) * serviceFeePercentage) / 100,
+    );
+    const thirdPartyFeeAmount = roundMoney(
+      (Number(amount) * thirdPartyFeePercentage) / 100,
+    );
+    const totalFeePercentage = roundMoney(
+      serviceFeePercentage + thirdPartyFeePercentage,
+    );
+    const totalFeeAmount = roundMoney(serviceFeeAmount + thirdPartyFeeAmount);
     const settlementAmount =
       type === TransactionType.DEPOSIT
-        ? roundMoney(Number(amount) - feeAmount)
-        : roundMoney(Number(amount) + feeAmount);
+        ? roundMoney(Number(amount) - totalFeeAmount)
+        : roundMoney(Number(amount) + totalFeeAmount);
     return {
-      percentage,
-      feeAmount,
+      serviceFeePercentage,
+      serviceFeeAmount,
+      thirdPartyFeePercentage,
+      thirdPartyFeeAmount,
+      totalFeePercentage,
+      totalFeeAmount,
       settlementAmount,
     };
   }
